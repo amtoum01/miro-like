@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Stage, Layer, Rect, Circle, Star, Image as KonvaImage, Group } from 'react-konva';
+import { Stage, Layer, Rect, Circle, Star, Image as KonvaImage, Group, Text } from 'react-konva';
 import styled from 'styled-components';
+import { WS_URL } from '../../config';
 
 const WhiteboardContainer = styled.div`
   display: flex;
@@ -33,6 +34,14 @@ const Canvas = styled.div`
   background-color: #fff;
 `;
 
+type Cursor = {
+  id: string;
+  x: number;
+  y: number;
+  color: string;
+  username: string;
+};
+
 type Shape = {
   id: string;
   type: 'rectangle' | 'circle' | 'star' | 'image' | 'eraser';
@@ -45,6 +54,17 @@ type Shape = {
   innerRadius?: number;
   outerRadius?: number;
   imageUrl?: string;
+  userId?: string;
+};
+
+type WebSocketMessage = {
+  type: 'cursor_move' | 'shape_add' | 'shape_update' | 'shape_delete' | 'clear';
+  payload: any;
+};
+
+const getRandomColor = () => {
+  const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEEAD', '#D4A5A5'];
+  return colors[Math.floor(Math.random() * colors.length)];
 };
 
 const Whiteboard: React.FC = () => {
@@ -52,41 +72,86 @@ const Whiteboard: React.FC = () => {
   const [selectedTool, setSelectedTool] = useState<Shape['type']>('rectangle');
   const [isDrawing, setIsDrawing] = useState(false);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
+  const [eraserPos, setEraserPos] = useState({ x: 0, y: 0 });
+  const [cursors, setCursors] = useState<Cursor[]>([]);
+  const [userId] = useState<string>(Date.now().toString());
+  const [userColor] = useState<string>(getRandomColor());
   const stageRef = useRef<any>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    // Connect to WebSocket
+    wsRef.current = new WebSocket(WS_URL);
+
+    wsRef.current.onopen = () => {
+      console.log('Connected to WebSocket server');
+    };
+
+    wsRef.current.onmessage = (event) => {
+      const message: WebSocketMessage = JSON.parse(event.data);
+      
+      switch (message.type) {
+        case 'cursor_move':
+          const cursor = message.payload;
+          if (cursor.id !== userId) {
+            setCursors(prevCursors => {
+              const filtered = prevCursors.filter(c => c.id !== cursor.id);
+              return [...filtered, cursor];
+            });
+          }
+          break;
+        case 'shape_add':
+          const newShape = message.payload;
+          if (newShape.userId !== userId) {
+            setShapes(prevShapes => [...prevShapes, newShape]);
+          }
+          break;
+        case 'shape_update':
+          const updatedShape = message.payload;
+          if (updatedShape.userId !== userId) {
+            setShapes(prevShapes => {
+              const filtered = prevShapes.filter(s => s.id !== updatedShape.id);
+              return [...filtered, updatedShape];
+            });
+          }
+          break;
+        case 'shape_delete':
+          const deletedShapeIds = message.payload;
+          if (deletedShapeIds.userId !== userId) {
+            setShapes(prevShapes => 
+              prevShapes.filter(shape => !deletedShapeIds.includes(shape.id))
+            );
+          }
+          break;
+        case 'clear':
+          if (message.payload.userId !== userId) {
+            setShapes([]);
+          }
+          break;
+      }
+    };
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [userId]);
+
+  const sendToWebSocket = (message: WebSocketMessage) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(message));
+    }
+  };
 
   const handleMouseDown = (e: any) => {
     const pos = e.target.getStage().getPointerPosition();
     setIsDrawing(true);
     setStartPos(pos);
+    setEraserPos(pos);
 
     if (selectedTool === 'eraser') {
-      // Check if eraser intersects with any shape
-      const eraserX = pos.x;
-      const eraserY = pos.y;
-      const eraserSize = 20;
-
-      const remainingShapes = shapes.filter(shape => {
-        // Simple intersection check based on shape type
-        if (shape.type === 'rectangle' || shape.type === 'image') {
-          return !(eraserX >= shape.x && 
-                  eraserX <= shape.x + shape.width && 
-                  eraserY >= shape.y && 
-                  eraserY <= shape.y + shape.height);
-        } else if (shape.type === 'circle') {
-          const dx = eraserX - shape.x;
-          const dy = eraserY - shape.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          return distance > (shape.radius || 0);
-        } else if (shape.type === 'star') {
-          const dx = eraserX - shape.x;
-          const dy = eraserY - shape.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          return distance > (shape.outerRadius || 0);
-        }
-        return true;
-      });
-
-      setShapes(remainingShapes);
+      eraseShapesAtPosition(pos.x, pos.y);
       return;
     }
 
@@ -97,6 +162,7 @@ const Whiteboard: React.FC = () => {
       y: pos.y,
       width: 0,
       height: 0,
+      userId,
     };
 
     if (selectedTool === 'circle') {
@@ -112,51 +178,100 @@ const Whiteboard: React.FC = () => {
     }
 
     setShapes([...shapes, newShape]);
+    sendToWebSocket({ type: 'shape_add', payload: newShape });
   };
 
   const handleMouseMove = (e: any) => {
-    if (!isDrawing || selectedTool === 'eraser') return;
-
     const pos = e.target.getStage().getPointerPosition();
+    setEraserPos(pos);
+
+    // Send cursor position
+    const cursorData: Cursor = {
+      id: userId,
+      x: pos.x,
+      y: pos.y,
+      color: userColor,
+      username: 'User ' + userId.slice(-4),
+    };
+    sendToWebSocket({ type: 'cursor_move', payload: cursorData });
+
+    if (selectedTool === 'eraser' && isDrawing) {
+      eraseShapesAtPosition(pos.x, pos.y);
+      return;
+    }
+
+    if (!isDrawing) return;
+
     const lastShape = shapes[shapes.length - 1];
+    let updatedShape = { ...lastShape };
 
     if (lastShape.type === 'rectangle') {
-      const newWidth = pos.x - startPos.x;
-      const newHeight = pos.y - startPos.y;
-      const updatedShape = {
+      updatedShape = {
         ...lastShape,
-        width: newWidth,
-        height: newHeight,
+        width: pos.x - startPos.x,
+        height: pos.y - startPos.y,
       };
-      setShapes([...shapes.slice(0, -1), updatedShape]);
     } else if (lastShape.type === 'circle') {
       const dx = pos.x - startPos.x;
       const dy = pos.y - startPos.y;
-      const radius = Math.sqrt(dx * dx + dy * dy);
-      const updatedShape = {
+      updatedShape = {
         ...lastShape,
-        radius,
+        radius: Math.sqrt(dx * dx + dy * dy),
       };
-      setShapes([...shapes.slice(0, -1), updatedShape]);
     } else if (lastShape.type === 'star') {
       const dx = pos.x - startPos.x;
       const dy = pos.y - startPos.y;
       const radius = Math.sqrt(dx * dx + dy * dy);
-      const updatedShape = {
+      updatedShape = {
         ...lastShape,
         innerRadius: radius * 0.5,
         outerRadius: radius,
       };
-      setShapes([...shapes.slice(0, -1), updatedShape]);
     }
+
+    setShapes([...shapes.slice(0, -1), updatedShape]);
+    sendToWebSocket({ type: 'shape_update', payload: updatedShape });
   };
 
-  const handleMouseUp = () => {
-    setIsDrawing(false);
+  const eraseShapesAtPosition = (x: number, y: number) => {
+    const shapesToDelete: string[] = [];
+    const remainingShapes = shapes.filter(shape => {
+      const shouldDelete = (() => {
+        if (shape.type === 'rectangle' || shape.type === 'image') {
+          return x >= shape.x && 
+                 x <= shape.x + shape.width && 
+                 y >= shape.y && 
+                 y <= shape.y + shape.height;
+        } else if (shape.type === 'circle') {
+          const dx = x - shape.x;
+          const dy = y - shape.y;
+          return Math.sqrt(dx * dx + dy * dy) <= (shape.radius || 0);
+        } else if (shape.type === 'star') {
+          const dx = x - shape.x;
+          const dy = y - shape.y;
+          return Math.sqrt(dx * dx + dy * dy) <= (shape.outerRadius || 0);
+        }
+        return false;
+      })();
+
+      if (shouldDelete) {
+        shapesToDelete.push(shape.id);
+      }
+      return !shouldDelete;
+    });
+
+    if (shapesToDelete.length > 0) {
+      setShapes(remainingShapes);
+      sendToWebSocket({ 
+        type: 'shape_delete', 
+        payload: { ids: shapesToDelete, userId } 
+      });
+    }
   };
 
   const handleClear = () => {
     setShapes([]);
+    sendToWebSocket({ type: 'clear', payload: { userId } });
   };
 
   return (
@@ -202,7 +317,7 @@ const Whiteboard: React.FC = () => {
           height={window.innerHeight}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
+          onMouseUp={() => setIsDrawing(false)}
           ref={stageRef}
         >
           <Layer>
@@ -270,16 +385,43 @@ const Whiteboard: React.FC = () => {
               }
               return null;
             })}
-            {selectedTool === 'eraser' && isDrawing && (
+            {selectedTool === 'eraser' && (
               <Circle
-                x={startPos.x}
-                y={startPos.y}
+                x={eraserPos.x}
+                y={eraserPos.y}
                 radius={10}
                 fill="rgba(255, 0, 0, 0.2)"
                 stroke="red"
                 strokeWidth={1}
               />
             )}
+            {cursors.map(cursor => (
+              <Group key={cursor.id}>
+                <Circle
+                  x={cursor.x}
+                  y={cursor.y}
+                  radius={5}
+                  fill={cursor.color}
+                />
+                <Rect
+                  x={cursor.x + 10}
+                  y={cursor.y + 10}
+                  width={70}
+                  height={20}
+                  fill="white"
+                  stroke={cursor.color}
+                  strokeWidth={1}
+                  cornerRadius={5}
+                />
+                <Text
+                  x={cursor.x + 15}
+                  y={cursor.y + 15}
+                  text={cursor.username}
+                  fontSize={12}
+                  fill={cursor.color}
+                />
+              </Group>
+            ))}
           </Layer>
         </Stage>
       </Canvas>

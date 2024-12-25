@@ -46,9 +46,10 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
 
-    async def broadcast(self, message: str):
+    async def broadcast(self, message: str, exclude_websocket: WebSocket = None):
         for connection in self.active_connections:
-            await connection.send_text(message)
+            if connection != exclude_websocket:
+                await connection.send_text(message)
 
 manager = ConnectionManager()
 
@@ -94,7 +95,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            await manager.broadcast(data)
+            await manager.broadcast(data, exclude_websocket=websocket)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
