@@ -55,7 +55,6 @@ type Shape = {
   outerRadius?: number;
   imageUrl?: string;
   userId: string;
-  boardId: string;
 };
 
 type WebSocketMessage = {
@@ -212,16 +211,8 @@ const Whiteboard: React.FC = () => {
 
   const sendToWebSocket = (message: WebSocketMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      // Add boardId to all messages
-      const messageWithBoard = {
-        ...message,
-        payload: {
-          ...message.payload,
-          boardId: DEFAULT_BOARD_ID
-        }
-      };
-      console.log('Sending WebSocket message:', messageWithBoard);
-      wsRef.current.send(JSON.stringify(messageWithBoard));
+      console.log('Sending WebSocket message:', message);
+      wsRef.current.send(JSON.stringify(message));
     } else {
       console.warn('WebSocket is not connected. Message not sent:', message);
     }
@@ -251,7 +242,6 @@ const Whiteboard: React.FC = () => {
       width: 0,
       height: 0,
       userId,
-      boardId: DEFAULT_BOARD_ID,
     };
 
     if (selectedTool === 'circle') {

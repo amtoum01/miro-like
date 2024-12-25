@@ -53,14 +53,26 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.user_cursors: Dict[str, dict] = {}
-        self.boards: Dict[str, List[dict]] = {
-            'default': []  # Default board that everyone will use
-        }
+        # Single board for all users
+        self.shapes: List[dict] = []
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
         logger.info(f"Client connected. Total connections: {len(self.active_connections)}")
+        
+        # Send current state to the new client
+        state_message = json.dumps({
+            'type': 'current_state',
+            'payload': {
+                'shapes': self.shapes,
+                'cursors': [
+                    {k: v for k, v in cursor.items() if k != 'websocket'}
+                    for cursor in self.user_cursors.values()
+                ]
+            }
+        })
+        await websocket.send_text(state_message)
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
@@ -89,7 +101,6 @@ class ConnectionManager:
             data = json.loads(message)
             message_type = data.get('type')
             payload = data.get('payload', {})
-            board_id = payload.get('boardId', 'default')
 
             if message_type == 'cursor_move':
                 user_id = payload.get('id')
@@ -110,50 +121,41 @@ class ConnectionManager:
                     await self._broadcast_message(cursor_message, exclude_websocket)
                 return
 
+            elif message_type == 'shape_add':
+                self.shapes.append(payload)
+                await self._broadcast_message(message)
+
+            elif message_type == 'shape_update':
+                for i, shape in enumerate(self.shapes):
+                    if shape.get('id') == payload.get('id'):
+                        self.shapes[i] = payload
+                        await self._broadcast_message(message)
+                        break
+
+            elif message_type == 'shape_delete':
+                shape_ids = payload.get('ids', [])
+                self.shapes = [s for s in self.shapes if s.get('id') not in shape_ids]
+                await self._broadcast_message(message)
+
+            elif message_type == 'clear':
+                self.shapes = []
+                await self._broadcast_message(message)
+
             elif message_type == 'request_state':
                 # Send current state to the requesting client
                 state_message = json.dumps({
                     'type': 'current_state',
                     'payload': {
-                        'shapes': self.boards.get(board_id, []),
+                        'shapes': self.shapes,
                         'cursors': [
                             {k: v for k, v in cursor.items() if k != 'websocket'}
                             for cursor in self.user_cursors.values()
-                        ],
-                        'boardId': board_id
+                        ]
                     }
                 })
                 if exclude_websocket:
                     await exclude_websocket.send_text(state_message)
                 return
-
-            elif message_type == 'shape_add':
-                if board_id not in self.boards:
-                    self.boards[board_id] = []
-                self.boards[board_id].append(payload)
-                await self._broadcast_message(message, exclude_websocket)
-
-            elif message_type == 'shape_update':
-                if board_id in self.boards:
-                    for i, shape in enumerate(self.boards[board_id]):
-                        if shape.get('id') == payload.get('id'):
-                            self.boards[board_id][i] = payload
-                            await self._broadcast_message(message, exclude_websocket)
-                            break
-
-            elif message_type == 'shape_delete':
-                if board_id in self.boards:
-                    shape_ids = payload.get('ids', [])
-                    self.boards[board_id] = [
-                        s for s in self.boards[board_id] 
-                        if s.get('id') not in shape_ids
-                    ]
-                    await self._broadcast_message(message, exclude_websocket)
-
-            elif message_type == 'clear':
-                if board_id in self.boards:
-                    self.boards[board_id] = []
-                    await self._broadcast_message(message, exclude_websocket)
             
         except Exception as e:
             logger.error(f"Error broadcasting message: {str(e)}")
