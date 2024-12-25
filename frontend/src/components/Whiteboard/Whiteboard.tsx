@@ -74,7 +74,6 @@ const Whiteboard: React.FC = () => {
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [eraserPos, setEraserPos] = useState({ x: 0, y: 0 });
   const [cursors, setCursors] = useState<Cursor[]>([]);
-  const [userId] = useState<string>(Date.now().toString());
   const [userColor] = useState<string>(getRandomColor());
   const stageRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -82,6 +81,28 @@ const Whiteboard: React.FC = () => {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const MAX_RECONNECT_ATTEMPTS = 5;
+
+  // Get username from token
+  const getUsername = () => {
+    const token = localStorage.getItem('token');
+    if (!token) return null;
+    
+    try {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => 
+        '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+      ).join(''));
+      
+      const payload = JSON.parse(jsonPayload);
+      return payload.sub;  // 'sub' contains the username
+    } catch (e) {
+      console.error('Error decoding token:', e);
+      return null;
+    }
+  };
+
+  const username = getUsername();
 
   const connectWebSocket = () => {
     if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
@@ -106,15 +127,15 @@ const Whiteboard: React.FC = () => {
       reconnectAttemptsRef.current = 0;
       
       // Request current state first
-      sendToWebSocket({ type: 'request_state', payload: { userId } });
+      sendToWebSocket({ type: 'request_state', payload: { username } });
       
       // Then send initial cursor position
       const initialCursor: Cursor = {
-        id: userId,
+        id: username || 'anonymous',
         x: 0,
         y: 0,
         color: userColor,
-        username: 'User ' + userId.slice(-4),
+        username: username || 'Anonymous',
       };
       sendToWebSocket({ type: 'cursor_move', payload: initialCursor });
     };
@@ -122,7 +143,7 @@ const Whiteboard: React.FC = () => {
     wsRef.current.onclose = () => {
       console.log('Disconnected from WebSocket server');
       // Remove disconnected cursors
-      setCursors(prevCursors => prevCursors.filter(c => c.id !== userId));
+      setCursors(prevCursors => prevCursors.filter(c => c.id !== username));
       
       // Try to reconnect after a delay
       if (reconnectTimeoutRef.current) {
@@ -148,7 +169,7 @@ const Whiteboard: React.FC = () => {
           case 'cursor_move':
             const cursor = message.payload;
             console.log('Processing cursor_move:', cursor);
-            if (cursor.id !== userId) {
+            if (cursor.id !== username) {
               console.log('Received cursor update for other user:', cursor);
               if (cursor.remove) {
                 console.log('Removing cursor for user:', cursor.id);
@@ -203,9 +224,9 @@ const Whiteboard: React.FC = () => {
               // Keep our cursor and add other cursors
               setCursors(prevCursors => {
                 console.log('Previous cursors before state update:', prevCursors);
-                const ourCursor = prevCursors.find((c: Cursor) => c.id === userId);
+                const ourCursor = prevCursors.find((c: Cursor) => c.id === username);
                 console.log('Our cursor:', ourCursor);
-                const otherCursors = currentCursors.filter((c: Cursor) => c.id !== userId);
+                const otherCursors = currentCursors.filter((c: Cursor) => c.id !== username);
                 console.log('Other cursors:', otherCursors);
                 const newCursors = [...otherCursors, ...(ourCursor ? [ourCursor] : [])];
                 console.log('New cursors after state update:', newCursors);
@@ -234,7 +255,7 @@ const Whiteboard: React.FC = () => {
       // Clear cursors when component unmounts
       setCursors([]);
     };
-  }, [userId, userColor]);
+  }, [username, userColor]);
 
   const sendToWebSocket = (message: WebSocketMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -268,7 +289,7 @@ const Whiteboard: React.FC = () => {
       y: pos.y || 0,
       width: 0,
       height: 0,
-      userId,
+      userId: username || 'anonymous',
     };
 
     if (selectedTool === 'circle') {
@@ -298,17 +319,17 @@ const Whiteboard: React.FC = () => {
 
     // Send cursor position
     const cursorData: Cursor = {
-      id: userId,
+      id: username || 'anonymous',
       x: pos.x || 0,
       y: pos.y || 0,
       color: userColor,
-      username: 'User ' + userId.slice(-4),
+      username: username || 'Anonymous',
     };
     
     // Update local cursor state immediately
     setCursors(prevCursors => {
       console.log('Updating local cursor state. Previous cursors:', prevCursors);
-      const filtered = prevCursors.filter((c: Cursor) => c.id !== userId);
+      const filtered = prevCursors.filter((c: Cursor) => c.id !== cursorData.id);
       const newCursors = [...filtered, cursorData];
       console.log('New cursor state:', newCursors);
       return newCursors;
@@ -399,14 +420,14 @@ const Whiteboard: React.FC = () => {
       setShapes(remainingShapes);
       sendToWebSocket({ 
         type: 'shape_delete', 
-        payload: { ids: shapesToDelete, userId } 
+        payload: { ids: shapesToDelete, userId: username } 
       });
     }
   };
 
   const handleClear = () => {
     setShapes([]);
-    sendToWebSocket({ type: 'clear', payload: { userId } });
+    sendToWebSocket({ type: 'clear', payload: { userId: username } });
   };
 
   return (
@@ -468,7 +489,7 @@ const Whiteboard: React.FC = () => {
             console.log('Mouse left canvas, removing cursor');
             sendToWebSocket({
               type: 'cursor_move',
-              payload: { id: userId, remove: true }
+              payload: { id: username, remove: true }
             });
           }}
           ref={stageRef}
@@ -625,7 +646,7 @@ const Whiteboard: React.FC = () => {
           {wsRef.current?.readyState === WebSocket.OPEN ? 'Connected' : 'Disconnected'}
         </div>
         <div>Cursors: {cursors.length}</div>
-        <div>Your ID: {userId.slice(-4)}</div>
+        <div>Your ID: {username?.slice(-4)}</div>
         <div>Your Color: <span style={{ color: userColor }}>{userColor}</span></div>
         <div>WebSocket State: {wsRef.current?.readyState}</div>
       </div>
