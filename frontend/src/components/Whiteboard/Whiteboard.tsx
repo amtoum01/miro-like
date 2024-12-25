@@ -510,6 +510,7 @@ const Whiteboard: React.FC = () => {
                     outerRadius={shape.outerRadius || 0}
                     stroke="#000"
                     strokeWidth={2}
+                    
                   />
                 );
               } else if (shape.type === 'image') {
