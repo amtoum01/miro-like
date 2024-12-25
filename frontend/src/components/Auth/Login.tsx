@@ -1,38 +1,48 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import config from '../../config';
+import { BACKEND_URL } from '../../config';
 
 const Container = styled.div`
   display: flex;
-  flex-direction: column;
-  align-items: center;
   justify-content: center;
+  align-items: center;
   height: 100vh;
   background-color: #f5f5f5;
 `;
 
 const Form = styled.form`
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  background: white;
   padding: 2rem;
-  background-color: white;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   width: 100%;
   max-width: 400px;
+
+  h2 {
+    text-align: center;
+    margin-bottom: 2rem;
+    color: #333;
+  }
 `;
 
 const Input = styled.input`
-  padding: 0.5rem;
+  width: 100%;
+  padding: 0.8rem;
+  margin-bottom: 1rem;
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 1rem;
+
+  &:focus {
+    outline: none;
+    border-color: #0066cc;
+  }
 `;
 
 const Button = styled.button`
-  padding: 0.5rem;
+  width: 100%;
+  padding: 0.8rem;
   background-color: #0066cc;
   color: white;
   border: none;
@@ -46,44 +56,24 @@ const Button = styled.button`
   }
 `;
 
-const ErrorMessage = styled.div`
-  color: #dc3545;
-  font-size: 0.875rem;
-  margin-top: 0.5rem;
-`;
-
-const RegisterLink = styled(Link)`
-  color: #0066cc;
-  text-decoration: none;
-  font-size: 0.875rem;
-  margin-top: 1rem;
-  text-align: center;
-
-  &:hover {
-    text-decoration: underline;
-  }
-`;
-
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    
     try {
-      const response = await fetch(`${config.apiUrl}/token`, {
+      const formData = new URLSearchParams();
+      formData.append('username', username);
+      formData.append('password', password);
+
+      const response = await fetch(`${BACKEND_URL}/token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: new URLSearchParams({
-          username,
-          password,
-        }),
+        body: formData,
       });
 
       if (response.ok) {
@@ -91,12 +81,12 @@ const Login: React.FC = () => {
         localStorage.setItem('token', data.access_token);
         navigate('/whiteboard');
       } else {
-        const errorData = await response.json();
-        setError(errorData.detail || 'Login failed. Please check your credentials.');
+        const error = await response.json();
+        alert(error.detail);
       }
     } catch (error) {
-      setError('Error during login. Please try again.');
-      console.error('Error during login:', error);
+      console.error('Login error:', error);
+      alert('Failed to login. Please try again.');
     }
   };
 
@@ -104,25 +94,19 @@ const Login: React.FC = () => {
     <Container>
       <Form onSubmit={handleSubmit}>
         <h2>Login</h2>
-        {error && <ErrorMessage>{error}</ErrorMessage>}
         <Input
           type="text"
           placeholder="Username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          required
         />
         <Input
           type="password"
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          required
         />
         <Button type="submit">Login</Button>
-        <RegisterLink to="/register">
-          Don't have an account? Register here
-        </RegisterLink>
       </Form>
     </Container>
   );
