@@ -154,42 +154,38 @@ const Whiteboard: React.FC = () => {
             break;
           case 'shape_add':
             const newShape = message.payload;
-            if (newShape.userId !== userId) {
-              setShapes(prevShapes => [...prevShapes, newShape]);
-            }
+            setShapes(prevShapes => [...prevShapes, newShape]);
             break;
           case 'shape_update':
             const updatedShape = message.payload;
-            if (updatedShape.userId !== userId) {
-              setShapes(prevShapes => {
-                const filtered = prevShapes.filter(s => s.id !== updatedShape.id);
-                return [...filtered, updatedShape];
-              });
-            }
+            setShapes(prevShapes => {
+              const filtered = prevShapes.filter(s => s.id !== updatedShape.id);
+              return [...filtered, updatedShape];
+            });
             break;
           case 'shape_delete':
-            const { ids, userId: deletedByUserId } = message.payload;
-            if (deletedByUserId !== userId) {
-              setShapes(prevShapes => 
-                prevShapes.filter(shape => !ids.includes(shape.id))
-              );
-            }
+            const { ids } = message.payload;
+            setShapes(prevShapes => 
+              prevShapes.filter(shape => !ids.includes(shape.id))
+            );
             break;
           case 'clear':
-            if (message.payload.userId !== userId) {
-              setShapes([]);
-            }
+            setShapes([]);
             break;
           case 'current_state':
             console.log('Received current state:', message.payload);
             const { shapes: currentShapes, cursors: currentCursors } = message.payload;
-            setShapes(currentShapes || []);
-            // Update cursors but keep our own cursor
-            setCursors(prevCursors => {
-              const ourCursor = prevCursors.find((c: Cursor) => c.id === userId);
-              const otherCursors = (currentCursors || []).filter((c: Cursor) => c.id !== userId);
-              return [...otherCursors, ...(ourCursor ? [ourCursor] : [])];
-            });
+            if (currentShapes) {
+              setShapes(currentShapes);
+            }
+            if (currentCursors) {
+              // Keep our cursor and add other cursors
+              setCursors(prevCursors => {
+                const ourCursor = prevCursors.find((c: Cursor) => c.id === userId);
+                const otherCursors = currentCursors.filter((c: Cursor) => c.id !== userId);
+                return [...otherCursors, ...(ourCursor ? [ourCursor] : [])];
+              });
+            }
             break;
         }
       } catch (error) {

@@ -73,32 +73,35 @@ class ConnectionManager:
                     break
             if disconnected_user:
                 del self.user_cursors[disconnected_user]
+                # Broadcast cursor removal
+                self._broadcast_cursor_removal(disconnected_user)
             logger.info(f"Client disconnected. Total connections: {len(self.active_connections)}")
+
+    async def _broadcast_cursor_removal(self, user_id: str):
+        removal_message = json.dumps({
+            'type': 'cursor_move',
+            'payload': {'id': user_id, 'remove': True}
+        })
+        await self._broadcast_message(removal_message)
 
     async def broadcast(self, message: str, exclude_websocket: WebSocket = None):
         try:
             data = json.loads(message)
             message_type = data.get('type')
             payload = data.get('payload', {})
-            board_id = payload.get('boardId', 'default')  # Use default board if not specified
+            board_id = payload.get('boardId', 'default')
 
             if message_type == 'cursor_move':
                 user_id = payload.get('id')
                 if payload.get('remove'):
-                    # Remove cursor when user leaves
                     if user_id in self.user_cursors:
                         del self.user_cursors[user_id]
-                    # Broadcast cursor removal to all clients
-                    removal_message = json.dumps({
-                        'type': 'cursor_move',
-                        'payload': {'id': user_id, 'remove': True}
-                    })
-                    await self._broadcast_message(removal_message, exclude_websocket)
+                    await self._broadcast_cursor_removal(user_id)
                 else:
-                    # Update cursor position and associate with WebSocket
+                    # Store cursor with WebSocket reference
                     cursor_data = {**payload, 'websocket': exclude_websocket}
                     self.user_cursors[user_id] = cursor_data
-                    # Broadcast cursor update without the websocket field
+                    # Broadcast cursor without WebSocket reference
                     broadcast_data = {k: v for k, v in cursor_data.items() if k != 'websocket'}
                     cursor_message = json.dumps({
                         'type': 'cursor_move',
@@ -106,6 +109,7 @@ class ConnectionManager:
                     })
                     await self._broadcast_message(cursor_message, exclude_websocket)
                 return
+
             elif message_type == 'request_state':
                 # Send current state to the requesting client
                 state_message = json.dumps({
@@ -122,16 +126,21 @@ class ConnectionManager:
                 if exclude_websocket:
                     await exclude_websocket.send_text(state_message)
                 return
+
             elif message_type == 'shape_add':
                 if board_id not in self.boards:
                     self.boards[board_id] = []
                 self.boards[board_id].append(payload)
+                await self._broadcast_message(message, exclude_websocket)
+
             elif message_type == 'shape_update':
                 if board_id in self.boards:
                     for i, shape in enumerate(self.boards[board_id]):
                         if shape.get('id') == payload.get('id'):
                             self.boards[board_id][i] = payload
+                            await self._broadcast_message(message, exclude_websocket)
                             break
+
             elif message_type == 'shape_delete':
                 if board_id in self.boards:
                     shape_ids = payload.get('ids', [])
@@ -139,12 +148,12 @@ class ConnectionManager:
                         s for s in self.boards[board_id] 
                         if s.get('id') not in shape_ids
                     ]
+                    await self._broadcast_message(message, exclude_websocket)
+
             elif message_type == 'clear':
                 if board_id in self.boards:
                     self.boards[board_id] = []
-            
-            # Broadcast the original message to all clients
-            await self._broadcast_message(message, exclude_websocket)
+                    await self._broadcast_message(message, exclude_websocket)
             
         except Exception as e:
             logger.error(f"Error broadcasting message: {str(e)}")
