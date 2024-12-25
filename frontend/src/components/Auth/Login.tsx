@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import styled from 'styled-components';
 import { BACKEND_URL } from '../../config';
 
@@ -56,6 +56,18 @@ const Button = styled.button`
   }
 `;
 
+const LinkText = styled(Link)`
+  display: block;
+  text-align: center;
+  margin-top: 1rem;
+  color: #0066cc;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+`;
+
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -107,6 +119,7 @@ const Login: React.FC = () => {
           onChange={(e) => setPassword(e.target.value)}
         />
         <Button type="submit">Login</Button>
+        <LinkText to="/register">Don't have an account? Register here</LinkText>
       </Form>
     </Container>
   );

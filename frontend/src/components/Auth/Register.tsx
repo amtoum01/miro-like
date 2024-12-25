@@ -1,7 +1,19 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import styled from 'styled-components';
 import { BACKEND_URL } from '../../config';
+
+const LinkText = styled(Link)`
+  display: block;
+  text-align: center;
+  margin-top: 1rem;
+  color: #0066cc;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+`;
 
 const Register: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -61,6 +73,7 @@ const Register: React.FC = () => {
           onChange={(e) => setPassword(e.target.value)}
         />
         <Button type="submit">Register</Button>
+        <LinkText to="/login">Already have an account? Login here</LinkText>
       </Form>
     </Container>
   );
