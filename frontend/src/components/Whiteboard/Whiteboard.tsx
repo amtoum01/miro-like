@@ -143,10 +143,10 @@ const Whiteboard: React.FC = () => {
             if (cursor.id !== userId) {
               console.log('Received cursor update:', cursor);
               if (cursor.remove) {
-                setCursors(prevCursors => prevCursors.filter(c => c.id !== cursor.id));
+                setCursors(prevCursors => prevCursors.filter((c: Cursor) => c.id !== cursor.id));
               } else {
                 setCursors(prevCursors => {
-                  const filtered = prevCursors.filter(c => c.id !== cursor.id);
+                  const filtered = prevCursors.filter((c: Cursor) => c.id !== cursor.id);
                   return [...filtered, cursor];
                 });
               }
@@ -186,8 +186,8 @@ const Whiteboard: React.FC = () => {
             setShapes(currentShapes || []);
             // Update cursors but keep our own cursor
             setCursors(prevCursors => {
-              const ourCursor = prevCursors.find(c => c.id === userId);
-              const otherCursors = (currentCursors || []).filter(c => c.id !== userId);
+              const ourCursor = prevCursors.find((c: Cursor) => c.id === userId);
+              const otherCursors = (currentCursors || []).filter((c: Cursor) => c.id !== userId);
               return [...otherCursors, ...(ourCursor ? [ourCursor] : [])];
             });
             break;
@@ -294,7 +294,7 @@ const Whiteboard: React.FC = () => {
     
     // Update local cursor state immediately
     setCursors(prevCursors => {
-      const filtered = prevCursors.filter(c => c.id !== userId);
+      const filtered = prevCursors.filter((c: Cursor) => c.id !== userId);
       return [...filtered, cursorData];
     });
     
