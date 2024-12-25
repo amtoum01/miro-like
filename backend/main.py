@@ -16,15 +16,19 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 # CORS configuration
+origins = [
+    "http://localhost:3000",           # Local development
+    "https://miro-like-chi.vercel.app" # Vercel production URL
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",           # Local development
-        "https://miro-like-chi.vercel.app" # Vercel production URL
-    ],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
 
 # Pydantic models

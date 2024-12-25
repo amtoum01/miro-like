@@ -85,6 +85,8 @@ const Login: React.FC = () => {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
+        credentials: 'include',
+        mode: 'cors',
         body: formData,
       });
 

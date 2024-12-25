@@ -29,6 +29,8 @@ const Register: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
+        mode: 'cors',
         body: JSON.stringify({
           email,
           username,
