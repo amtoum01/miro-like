@@ -442,6 +442,26 @@ const Whiteboard: React.FC = () => {
     sendToWebSocket({ type: 'clear', payload: { userId: username } });
   };
 
+  // Add function to check if cursor is out of bounds
+  const isOutOfBounds = (x: number, y: number, stageWidth: number, stageHeight: number) => {
+    return x < 0 || x > stageWidth || y < 0 || y > stageHeight;
+  };
+
+  // Add function to get cursor position
+  const getCursorPosition = (cursor: Cursor, stageWidth: number, stageHeight: number) => {
+    if (isOutOfBounds(cursor.x, cursor.y, stageWidth, stageHeight)) {
+      // If cursor is out of bounds, return center position
+      return {
+        x: stageWidth / 2,
+        y: stageHeight / 2
+      };
+    }
+    return {
+      x: cursor.x,
+      y: cursor.y
+    };
+  };
+
   return (
     <WhiteboardContainer>
       <Toolbar>
@@ -589,21 +609,28 @@ const Whiteboard: React.FC = () => {
                 console.log('Invalid cursor data:', cursor);
                 return null;
               }
+
+              const stageWidth = Math.max(0, window.innerWidth - 200);
+              const stageHeight = Math.max(0, window.innerHeight);
+              const position = getCursorPosition(cursor, stageWidth, stageHeight);
+              const isOutside = isOutOfBounds(cursor.x, cursor.y, stageWidth, stageHeight);
+
               return (
                 <Group key={cursor.id}>
                   <Circle
-                    x={cursor.x || 0}
-                    y={cursor.y || 0}
+                    x={position.x}
+                    y={position.y}
                     radius={8}
                     fill={cursor.color}
                     shadowColor="black"
                     shadowBlur={2}
                     shadowOffset={{ x: 1, y: 1 }}
                     shadowOpacity={0.4}
+                    opacity={isOutside ? 0.5 : 1}
                   />
                   <Rect
-                    x={(cursor.x || 0) + 10}
-                    y={(cursor.y || 0) + 10}
+                    x={position.x + 10}
+                    y={position.y + 10}
                     width={100}
                     height={24}
                     fill="white"
@@ -614,14 +641,16 @@ const Whiteboard: React.FC = () => {
                     shadowBlur={2}
                     shadowOffset={{ x: 1, y: 1 }}
                     shadowOpacity={0.2}
+                    opacity={isOutside ? 0.5 : 1}
                   />
                   <Text
-                    x={(cursor.x || 0) + 15}
-                    y={(cursor.y || 0) + 15}
-                    text={cursor.username}
+                    x={position.x + 15}
+                    y={position.y + 15}
+                    text={isOutside ? `${cursor.username} (out of bounds)` : cursor.username}
                     fontSize={14}
                     fill={cursor.color}
                     fontStyle="bold"
+                    opacity={isOutside ? 0.5 : 1}
                   />
                 </Group>
               );
