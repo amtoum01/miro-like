@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Stage, Layer, Rect, Circle, Star, Image as KonvaImage, Group, Text } from 'react-konva';
+import { Stage, Layer, Rect, Circle, Star, Group, Text } from 'react-konva';
 import styled from 'styled-components';
 import { WS_URL } from '../../config';
 
