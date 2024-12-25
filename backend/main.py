@@ -79,30 +79,32 @@ class ConnectionManager:
         self.shapes: List[dict] = []
         logger.info("ConnectionManager initialized")
 
-    async def connect(self, websocket: WebSocket, user: Optional[models.User] = None):
-        await websocket.accept()
-        connection_info = {
-            "socket": websocket,
-            "user": user
-        }
-        self.active_connections.append(connection_info)
-        logger.info(f"New client connected. User: {user.username if user else 'Anonymous'}")
-        logger.info(f"Total connections: {len(self.active_connections)}")
-        logger.info(f"Active users: {[conn['user'].username if conn['user'] else 'Anonymous' for conn in self.active_connections]}")
+    async def cleanup_user(self, username: str):
+        """Clean up all resources associated with a user"""
+        logger.info(f"Cleaning up resources for user: {username}")
         
-        # Send current state to the new client
-        state_message = json.dumps({
-            'type': 'current_state',
-            'payload': {
-                'shapes': self.shapes,
-                'cursors': [
-                    {k: v for k, v in cursor.items() if k not in ['websocket', 'user']}
-                    for cursor in self.user_cursors.values()
-                ]
-            }
-        })
-        logger.info(f"Sending initial state to new client. Current cursors: {[cursor.get('username') for cursor in self.user_cursors.values()]}")
-        await websocket.send_text(state_message)
+        # Remove user's cursor
+        if username in self.user_cursors:
+            logger.info(f"Removing cursor for user: {username}")
+            del self.user_cursors[username]
+            await self._broadcast_cursor_removal(username)
+        
+        # Remove user's connections
+        connections_to_remove = [
+            conn for conn in self.active_connections 
+            if conn["user"] and conn["user"].username == username
+        ]
+        
+        for conn in connections_to_remove:
+            self.active_connections.remove(conn)
+            try:
+                await conn["socket"].close()
+            except Exception as e:
+                logger.error(f"Error closing connection for user {username}: {str(e)}")
+        
+        logger.info(f"Cleanup complete for user: {username}")
+        logger.info(f"Remaining connections: {len(self.active_connections)}")
+        logger.info(f"Remaining users: {[conn['user'].username if conn['user'] else 'Anonymous' for conn in self.active_connections]}")
 
     def disconnect(self, websocket: WebSocket):
         # Find and remove the connection
@@ -140,10 +142,9 @@ class ConnectionManager:
                     
                 username = current_user.username
                 if payload.get('remove'):
-                    if username in self.user_cursors:
-                        logger.info(f"Removing cursor for user: {username}")
-                        del self.user_cursors[username]
-                    await self._broadcast_cursor_removal(username)
+                    # Handle explicit logout/cleanup request
+                    await self.cleanup_user(username)
+                    return
                 else:
                     # Update cursor data with user information
                     cursor_data = {

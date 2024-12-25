@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { Stage, Layer, Rect, Circle, Star, Group, Text } from 'react-konva';
 import styled from 'styled-components';
 import { WS_URL } from '../../config';
+import { useNavigate } from 'react-router-dom';
 
 const WhiteboardContainer = styled.div`
   display: flex;
@@ -32,6 +33,23 @@ const ToolButton = styled.button<{ active?: boolean }>`
 const Canvas = styled.div`
   flex: 1;
   background-color: #fff;
+`;
+
+const LogoutButton = styled.button`
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  padding: 8px 16px;
+  background-color: #ff4444;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  
+  &:hover {
+    background-color: #ff0000;
+  }
 `;
 
 type Cursor = {
@@ -81,6 +99,7 @@ const Whiteboard: React.FC = () => {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const MAX_RECONNECT_ATTEMPTS = 5;
+  const navigate = useNavigate();
 
   // Get username from token
   const getUsername = () => {
@@ -462,6 +481,31 @@ const Whiteboard: React.FC = () => {
     };
   };
 
+  const handleLogout = async () => {
+    try {
+      // Send cursor removal message
+      if (wsRef.current) {
+        const message = {
+          type: 'cursor_move',
+          payload: {
+            remove: true
+          }
+        };
+        wsRef.current.send(JSON.stringify(message));
+        wsRef.current.close();
+      }
+
+      // Clear local storage
+      localStorage.removeItem('token');
+      localStorage.removeItem('username');
+
+      // Navigate to login page
+      navigate('/login');
+    } catch (error) {
+      console.error('Error during logout:', error);
+    }
+  };
+
   return (
     <WhiteboardContainer>
       <Toolbar>
@@ -498,6 +542,9 @@ const Whiteboard: React.FC = () => {
         <ToolButton onClick={handleClear}>
           Clear All
         </ToolButton>
+        <LogoutButton onClick={handleLogout}>
+          Logout
+        </LogoutButton>
       </Toolbar>
       <Canvas>
         <Stage
