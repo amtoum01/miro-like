@@ -20,23 +20,18 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+# Get environment
+is_development = os.getenv('ENV', 'production') == 'development'
+allowed_origins = ["*"] if is_development else ["https://miro-like-chi.vercel.app", "http://localhost:3000"]
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://miro-like-chi.vercel.app", "http://localhost:3000"],
-    allow_credentials=True,  # Changed to True to support WebSocket
+    allow_origins=allowed_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Add WebSocket-specific CORS headers
-@app.middleware("http")
-async def add_websocket_cors_headers(request, call_next):
-    response = await call_next(request)
-    if request.url.path == "/ws":
-        response.headers["Access-Control-Allow-Origin"] = "https://miro-like-chi.vercel.app"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
 
 # Pydantic models
 class UserCreate(BaseModel):

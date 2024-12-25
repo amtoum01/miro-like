@@ -298,13 +298,17 @@ const Whiteboard: React.FC = () => {
     
     // Update local cursor state immediately
     setCursors(prevCursors => {
+      console.log('Updating local cursor state. Previous cursors:', prevCursors);
       const filtered = prevCursors.filter((c: Cursor) => c.id !== userId);
-      return [...filtered, cursorData];
+      const newCursors = [...filtered, cursorData];
+      console.log('New cursor state:', newCursors);
+      return newCursors;
     });
     
     // Send cursor updates more frequently
     const now = Date.now();
     if (!lastCursorUpdate.current || now - lastCursorUpdate.current > 30) {
+      console.log('Sending cursor update:', cursorData);
       sendToWebSocket({ type: 'cursor_move', payload: cursorData });
       lastCursorUpdate.current = now;
     }
@@ -537,46 +541,46 @@ const Whiteboard: React.FC = () => {
               />
             )}
             {cursors.map(cursor => {
-              console.log('Rendering cursor:', cursor);
+              console.log('Attempting to render cursor:', cursor);
               if (!cursor || typeof cursor.x !== 'number' || typeof cursor.y !== 'number') {
-                  console.log('Invalid cursor data:', cursor);
-                  return null;
+                console.log('Invalid cursor data:', cursor);
+                return null;
               }
               return (
-                  <Group key={cursor.id}>
-                      <Circle
-                          x={cursor.x || 0}
-                          y={cursor.y || 0}
-                          radius={8}
-                          fill={cursor.color}
-                          shadowColor="black"
-                          shadowBlur={2}
-                          shadowOffset={{ x: 1, y: 1 }}
-                          shadowOpacity={0.4}
-                      />
-                      <Rect
-                          x={(cursor.x || 0) + 10}
-                          y={(cursor.y || 0) + 10}
-                          width={100}
-                          height={24}
-                          fill="white"
-                          stroke={cursor.color}
-                          strokeWidth={2}
-                          cornerRadius={5}
-                          shadowColor="black"
-                          shadowBlur={2}
-                          shadowOffset={{ x: 1, y: 1 }}
-                          shadowOpacity={0.2}
-                      />
-                      <Text
-                          x={(cursor.x || 0) + 15}
-                          y={(cursor.y || 0) + 15}
-                          text={cursor.username}
-                          fontSize={14}
-                          fill={cursor.color}
-                          fontStyle="bold"
-                      />
-                  </Group>
+                <Group key={cursor.id}>
+                  <Circle
+                    x={cursor.x || 0}
+                    y={cursor.y || 0}
+                    radius={8}
+                    fill={cursor.color}
+                    shadowColor="black"
+                    shadowBlur={2}
+                    shadowOffset={{ x: 1, y: 1 }}
+                    shadowOpacity={0.4}
+                  />
+                  <Rect
+                    x={(cursor.x || 0) + 10}
+                    y={(cursor.y || 0) + 10}
+                    width={100}
+                    height={24}
+                    fill="white"
+                    stroke={cursor.color}
+                    strokeWidth={2}
+                    cornerRadius={5}
+                    shadowColor="black"
+                    shadowBlur={2}
+                    shadowOffset={{ x: 1, y: 1 }}
+                    shadowOpacity={0.2}
+                  />
+                  <Text
+                    x={(cursor.x || 0) + 15}
+                    y={(cursor.y || 0) + 15}
+                    text={cursor.username}
+                    fontSize={14}
+                    fill={cursor.color}
+                    fontStyle="bold"
+                  />
+                </Group>
               );
             })}
           </Layer>
@@ -613,6 +617,7 @@ const Whiteboard: React.FC = () => {
         <div>Cursors: {cursors.length}</div>
         <div>Your ID: {userId.slice(-4)}</div>
         <div>Your Color: <span style={{ color: userColor }}>{userColor}</span></div>
+        <div>WebSocket State: {wsRef.current?.readyState}</div>
       </div>
     </WhiteboardContainer>
   );
