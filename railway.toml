@@ -9,11 +9,10 @@ buildCommand = """
 """
 
 [deploy]
-startCommand = "cd backend && python3 -m gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000"
+startCommand = "cd backend && python3 -m gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT"
 healthcheckPath = "/"
-healthcheckTimeout = 200
+healthcheckTimeout = 300
 restartPolicyType = "on_failure"
-port = 8000
 
 [nixpacks]
 workdir = "backend"
