@@ -512,17 +512,28 @@ const Whiteboard: React.FC = () => {
               sendToWebSocket({ type: 'shape_update', payload: lastShape });
             }
           }}
-          onMouseLeave={() => {
+          onMouseLeave={(e: any) => {
             setIsDrawing(false);
             const lastShape = shapes[shapes.length - 1];
             if (lastShape) {
               sendToWebSocket({ type: 'shape_update', payload: lastShape });
             }
-            console.log('Mouse left canvas, removing cursor');
-            sendToWebSocket({
-              type: 'cursor_move',
-              payload: { id: username, remove: true }
-            });
+
+            // Get the cursor position relative to the stage
+            const stage = e.target.getStage();
+            const pos = stage.getPointerPosition();
+            
+            // Send the last known position even if it's out of bounds
+            if (pos && username) {
+              const cursorData: Cursor = {
+                id: username,
+                x: pos.x || 0,
+                y: pos.y || 0,
+                color: userColor,
+                username: username,
+              };
+              sendToWebSocket({ type: 'cursor_move', payload: cursorData });
+            }
           }}
           ref={stageRef}
         >
