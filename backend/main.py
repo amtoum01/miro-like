@@ -15,13 +15,13 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-# Get allowed origins from environment variable or use default for development
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
-
-# CORS middleware configuration
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=[
+        "http://localhost:3000",           # Local development
+        "https://miro-like-chi.vercel.app" # Vercel production URL
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

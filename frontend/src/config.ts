@@ -1,6 +1,11 @@
-const config = {
-  apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:8000',
-  wsUrl: import.meta.env.VITE_WS_URL || 'ws://localhost:8000',
-};
+// API URLs
+const BACKEND_URL = process.env.NODE_ENV === 'production' 
+  ? 'https://miro-like-production.up.railway.app'  // Railway URL
+  : 'http://localhost:8000';
 
-export default config; 
+// WebSocket URLs
+const WS_URL = process.env.NODE_ENV === 'production'
+  ? 'wss://miro-like-production.up.railway.app'    // Railway URL with wss://
+  : 'ws://localhost:8000';
+
+export { BACKEND_URL, WS_URL }; 

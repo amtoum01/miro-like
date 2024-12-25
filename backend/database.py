@@ -2,20 +2,19 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from dotenv import load_dotenv
 
-# Get the DATABASE_URL from environment variable, fallback to SQLite for development
+load_dotenv()
+
+# Get DATABASE_URL from environment variable, fallback to SQLite for local development
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./whiteboard.db")
 
-# Fix for PostgreSQL URL format from Railway
+# If using PostgreSQL from Railway, convert the URL to work with SQLAlchemy
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Create SQLAlchemy engine
-engine = create_engine(
-    DATABASE_URL,
-    # Only use this argument for SQLite
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-)
+# Create engine with proper URL
+engine = create_engine(DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
