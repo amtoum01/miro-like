@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import styled from 'styled-components';
+import config from '../../config';
 
 const Container = styled.div`
   display: flex;
@@ -74,7 +75,7 @@ const Login: React.FC = () => {
     setError('');
     
     try {
-      const response = await fetch('http://localhost:8000/token', {
+      const response = await fetch(`${config.apiUrl}/token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',

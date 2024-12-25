@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Stage, Layer, Rect } from 'react-konva';
 import styled from 'styled-components';
+import config from '../../config';
 
 const Container = styled.div`
   display: flex;
@@ -53,7 +54,7 @@ const Whiteboard: React.FC = () => {
 
   useEffect(() => {
     // Connect to WebSocket server
-    const ws = new WebSocket('ws://localhost:8000/ws');
+    const ws = new WebSocket(`${config.wsUrl}/ws`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
