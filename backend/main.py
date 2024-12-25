@@ -60,6 +60,7 @@ class ConnectionManager:
         await websocket.accept()
         self.active_connections.append(websocket)
         logger.info(f"Client connected. Total connections: {len(self.active_connections)}")
+        logger.info(f"Active connections: {[id(conn) for conn in self.active_connections]}")
         
         # Send current state to the new client
         state_message = json.dumps({
@@ -90,6 +91,7 @@ class ConnectionManager:
                 # Broadcast cursor removal
                 self._broadcast_cursor_removal(disconnected_user)
             logger.info(f"Client disconnected. Total connections: {len(self.active_connections)}")
+            logger.info(f"Remaining connections: {[id(conn) for conn in self.active_connections]}")
 
     async def _broadcast_cursor_removal(self, user_id: str):
         logger.info(f"Broadcasting cursor removal for user: {user_id}")
@@ -171,13 +173,17 @@ class ConnectionManager:
 
     async def _broadcast_message(self, message: str, exclude_websocket: WebSocket = None):
         logger.info(f"Broadcasting message to {len(self.active_connections)} clients (excluding sender)")
+        logger.info(f"Message type: {json.loads(message).get('type')}")
+        logger.info(f"Excluded websocket: {id(exclude_websocket) if exclude_websocket else None}")
+        logger.info(f"Active connections: {[id(conn) for conn in self.active_connections]}")
         disconnected = []
         for connection in self.active_connections:
             if connection != exclude_websocket:
                 try:
                     await connection.send_text(message)
+                    logger.info(f"Successfully sent message to connection {id(connection)}")
                 except Exception as e:
-                    logger.error(f"Error sending message to client: {str(e)}")
+                    logger.error(f"Error sending message to client {id(connection)}: {str(e)}")
                     disconnected.append(connection)
 
         # Clean up disconnected clients
