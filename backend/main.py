@@ -65,6 +65,14 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+            # Find and remove the cursor for the disconnected user
+            disconnected_user = None
+            for user_id, cursor in self.user_cursors.items():
+                if cursor.get('websocket') == websocket:
+                    disconnected_user = user_id
+                    break
+            if disconnected_user:
+                del self.user_cursors[disconnected_user]
             logger.info(f"Client disconnected. Total connections: {len(self.active_connections)}")
 
     async def broadcast(self, message: str, exclude_websocket: WebSocket = None):
@@ -78,7 +86,8 @@ class ConnectionManager:
                 user_id = payload.get('id')
                 if payload.get('remove'):
                     # Remove cursor when user leaves
-                    self.user_cursors.pop(user_id, None)
+                    if user_id in self.user_cursors:
+                        del self.user_cursors[user_id]
                     # Broadcast cursor removal to all clients
                     removal_message = json.dumps({
                         'type': 'cursor_move',
@@ -86,21 +95,44 @@ class ConnectionManager:
                     })
                     await self._broadcast_message(removal_message, exclude_websocket)
                 else:
-                    # Update cursor position
-                    self.user_cursors[user_id] = payload
+                    # Update cursor position and associate with WebSocket
+                    cursor_data = {**payload, 'websocket': exclude_websocket}
+                    self.user_cursors[user_id] = cursor_data
+                    # Broadcast cursor update without the websocket field
+                    broadcast_data = {k: v for k, v in cursor_data.items() if k != 'websocket'}
+                    cursor_message = json.dumps({
+                        'type': 'cursor_move',
+                        'payload': broadcast_data
+                    })
+                    await self._broadcast_message(cursor_message, exclude_websocket)
+                return
+            elif message_type == 'request_state':
+                # Send current state to the requesting client
+                state_message = json.dumps({
+                    'type': 'current_state',
+                    'payload': {
+                        'shapes': self.boards.get(board_id, []),
+                        'cursors': [
+                            {k: v for k, v in cursor.items() if k != 'websocket'}
+                            for cursor in self.user_cursors.values()
+                        ],
+                        'boardId': board_id
+                    }
+                })
+                if exclude_websocket:
+                    await exclude_websocket.send_text(state_message)
+                return
             elif message_type == 'shape_add':
                 if board_id not in self.boards:
                     self.boards[board_id] = []
                 self.boards[board_id].append(payload)
             elif message_type == 'shape_update':
-                # Update existing shape
                 if board_id in self.boards:
                     for i, shape in enumerate(self.boards[board_id]):
                         if shape.get('id') == payload.get('id'):
                             self.boards[board_id][i] = payload
                             break
             elif message_type == 'shape_delete':
-                # Remove shapes
                 if board_id in self.boards:
                     shape_ids = payload.get('ids', [])
                     self.boards[board_id] = [
@@ -110,20 +142,6 @@ class ConnectionManager:
             elif message_type == 'clear':
                 if board_id in self.boards:
                     self.boards[board_id] = []
-            elif message_type == 'request_state':
-                # Send current state to the requesting client
-                state_message = json.dumps({
-                    'type': 'current_state',
-                    'payload': {
-                        'shapes': self.boards.get(board_id, []),
-                        'cursors': list(self.user_cursors.values()),
-                        'userId': payload.get('userId'),
-                        'boardId': board_id
-                    }
-                })
-                if exclude_websocket:
-                    await exclude_websocket.send_text(state_message)
-                return
             
             # Broadcast the original message to all clients
             await self._broadcast_message(message, exclude_websocket)

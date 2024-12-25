@@ -98,7 +98,11 @@ const Whiteboard: React.FC = () => {
     wsRef.current.onopen = () => {
       console.log('Connected to WebSocket server');
       reconnectAttemptsRef.current = 0;
-      // Send initial cursor position and request current state
+      
+      // Request current state first
+      sendToWebSocket({ type: 'request_state', payload: { userId } });
+      
+      // Then send initial cursor position
       const initialCursor: Cursor = {
         id: userId,
         x: 0,
@@ -107,8 +111,6 @@ const Whiteboard: React.FC = () => {
         username: 'User ' + userId.slice(-4),
       };
       sendToWebSocket({ type: 'cursor_move', payload: initialCursor });
-      // Request current state
-      sendToWebSocket({ type: 'request_state', payload: { userId } });
     };
 
     wsRef.current.onclose = () => {
@@ -139,6 +141,7 @@ const Whiteboard: React.FC = () => {
           case 'cursor_move':
             const cursor = message.payload;
             if (cursor.id !== userId) {
+              console.log('Received cursor update:', cursor);
               if (cursor.remove) {
                 setCursors(prevCursors => prevCursors.filter(c => c.id !== cursor.id));
               } else {
@@ -178,11 +181,15 @@ const Whiteboard: React.FC = () => {
             }
             break;
           case 'current_state':
-            if (message.payload.userId !== userId) {
-              const { shapes: currentShapes, cursors: currentCursors } = message.payload;
-              setShapes(currentShapes || []);
-              setCursors(currentCursors || []);
-            }
+            console.log('Received current state:', message.payload);
+            const { shapes: currentShapes, cursors: currentCursors } = message.payload;
+            setShapes(currentShapes || []);
+            // Update cursors but keep our own cursor
+            setCursors(prevCursors => {
+              const ourCursor = prevCursors.find(c => c.id === userId);
+              const otherCursors = (currentCursors || []).filter(c => c.id !== userId);
+              return [...otherCursors, ...(ourCursor ? [ourCursor] : [])];
+            });
             break;
         }
       } catch (error) {
@@ -285,7 +292,13 @@ const Whiteboard: React.FC = () => {
       username: 'User ' + userId.slice(-4),
     };
     
-    // Throttle cursor updates to avoid overwhelming the WebSocket
+    // Update local cursor state immediately
+    setCursors(prevCursors => {
+      const filtered = prevCursors.filter(c => c.id !== userId);
+      return [...filtered, cursorData];
+    });
+    
+    // Throttle cursor updates to WebSocket
     const now = Date.now();
     if (!lastCursorUpdate.current || now - lastCursorUpdate.current > 50) {
       sendToWebSocket({ type: 'cursor_move', payload: cursorData });
