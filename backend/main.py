@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocke
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict
 import json
 import os
 
@@ -100,6 +100,10 @@ async def websocket_endpoint(websocket: WebSocket):
             await manager.broadcast(data)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+@app.get("/")
+def read_root():
+    return {"status": "healthy", "message": "Whiteboard API is running"}
 
 if __name__ == "__main__":
     import uvicorn

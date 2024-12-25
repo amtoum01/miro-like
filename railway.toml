@@ -4,13 +4,14 @@ buildCommand = """
     apt-get update && \
     apt-get install -y python3.11 python3-pip && \
     cd backend && \
-    pip3 install -r requirements.txt
+    pip3 install --no-cache-dir -r requirements.txt && \
+    pip3 install --no-cache-dir gunicorn
 """
 
 [deploy]
-startCommand = "cd backend && gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT"
-healthcheckPath = "/docs"
-healthcheckTimeout = 100
+startCommand = "cd backend && python3 -m gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT"
+healthcheckPath = "/"
+healthcheckTimeout = 200
 restartPolicyType = "on_failure"
 
 [nixpacks]
