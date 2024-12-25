@@ -242,6 +242,7 @@ const Whiteboard: React.FC = () => {
   };
 
   useEffect(() => {
+    console.log('Initializing WebSocket with username:', username);
     connectWebSocket();
 
     return () => {
@@ -317,28 +318,39 @@ const Whiteboard: React.FC = () => {
 
     setEraserPos({ x: pos.x || 0, y: pos.y || 0 });
 
+    if (!username) {
+      console.log('No username available, skipping cursor update');
+      return;
+    }
+
     // Send cursor position
     const cursorData: Cursor = {
-      id: username || 'anonymous',
+      id: username,
       x: pos.x || 0,
       y: pos.y || 0,
       color: userColor,
-      username: username || 'Anonymous',
+      username: username,
     };
     
     // Update local cursor state immediately
     setCursors(prevCursors => {
-      console.log('Updating local cursor state. Previous cursors:', prevCursors);
+      console.log('Updating local cursor state:');
+      console.log('- Previous cursors:', prevCursors);
+      console.log('- Current user:', username);
+      console.log('- Cursor data:', cursorData);
+      
       const filtered = prevCursors.filter((c: Cursor) => c.id !== cursorData.id);
+      console.log('- After filtering own cursor:', filtered);
+      
       const newCursors = [...filtered, cursorData];
-      console.log('New cursor state:', newCursors);
+      console.log('- New cursor state:', newCursors);
       return newCursors;
     });
     
     // Send cursor updates more frequently
     const now = Date.now();
     if (!lastCursorUpdate.current || now - lastCursorUpdate.current > 30) {
-      console.log('Sending cursor update:', cursorData);
+      console.log('Sending cursor update to server:', cursorData);
       sendToWebSocket({ type: 'cursor_move', payload: cursorData });
       lastCursorUpdate.current = now;
     }
@@ -646,9 +658,10 @@ const Whiteboard: React.FC = () => {
           {wsRef.current?.readyState === WebSocket.OPEN ? 'Connected' : 'Disconnected'}
         </div>
         <div>Cursors: {cursors.length}</div>
-        <div>Your ID: {username?.slice(-4)}</div>
+        <div>Your username: {username || 'Not logged in'}</div>
         <div>Your Color: <span style={{ color: userColor }}>{userColor}</span></div>
         <div>WebSocket State: {wsRef.current?.readyState}</div>
+        <div>Active cursors: {cursors.map(c => c.username).join(', ')}</div>
       </div>
     </WhiteboardContainer>
   );

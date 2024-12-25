@@ -91,6 +91,7 @@ class ConnectionManager:
         self.active_connections.append(connection_info)
         logger.info(f"New client connected. User: {user.username if user else 'Anonymous'}")
         logger.info(f"Total connections: {len(self.active_connections)}")
+        logger.info(f"Active users: {[conn['user'].username if conn['user'] else 'Anonymous' for conn in self.active_connections]}")
         
         # Send current state to the new client
         state_message = json.dumps({
@@ -126,16 +127,18 @@ class ConnectionManager:
                     self._broadcast_cursor_removal(username)
             
             logger.info(f"Client disconnected. Remaining connections: {len(self.active_connections)}")
+            logger.info(f"Remaining users: {[conn['user'].username if conn['user'] else 'Anonymous' for conn in self.active_connections]}")
 
     async def broadcast(self, message: str, exclude_websocket: WebSocket = None, current_user: Optional[models.User] = None):
         try:
             data = json.loads(message)
             message_type = data.get('type')
             payload = data.get('payload', {})
-            logger.info(f"Broadcasting message type: {message_type}")
+            logger.info(f"Broadcasting message type: {message_type} from user: {current_user.username if current_user else 'Anonymous'}")
 
             if message_type == 'cursor_move':
                 if not current_user:  # Only handle cursor moves from authenticated users
+                    logger.warning("Received cursor_move from unauthenticated user")
                     return
                     
                 username = current_user.username
@@ -155,6 +158,7 @@ class ConnectionManager:
                     }
                     self.user_cursors[username] = cursor_data
                     logger.info(f"Updated cursor for user {username}. Total cursors: {len(self.user_cursors)}")
+                    logger.info(f"Current cursor positions: {[(k, v.get('x', 'N/A'), v.get('y', 'N/A')) for k, v in self.user_cursors.items()]}")
                     
                     # Broadcast cursor without sensitive information
                     broadcast_data = {
@@ -215,6 +219,11 @@ class ConnectionManager:
 
     async def _broadcast_message(self, message: str, exclude_websocket: WebSocket = None):
         logger.info(f"Broadcasting to {len(self.active_connections)} clients")
+        
+        message_data = json.loads(message)
+        logger.info(f"Message type: {message_data.get('type')}")
+        if message_data.get('type') == 'cursor_move':
+            logger.info(f"Cursor update for user: {message_data.get('payload', {}).get('username')}")
         
         disconnected = []
         sent_count = 0
