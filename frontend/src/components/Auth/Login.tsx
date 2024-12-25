@@ -121,7 +121,7 @@ const Login: React.FC = () => {
         />
         <Button type="submit">Login</Button>
         <RegisterLink to="/register">
-          Don't have an account? Register here
+          Don't have an account? F off here
         </RegisterLink>
       </Form>
     </Container>
