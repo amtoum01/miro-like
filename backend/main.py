@@ -1,11 +1,13 @@
-from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List, Dict
+from typing import List, Dict, Optional
 import json
 import os
 import logging
+import jwt
+from jwt.exceptions import PyJWTError
 
 # Set up logging
 logging.basicConfig(
@@ -53,19 +55,42 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
-# WebSocket connection manager
+# Add this function to verify the token
+async def get_current_user_from_token(
+    token: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+) -> Optional[models.User]:
+    if not token:
+        return None
+        
+    try:
+        payload = jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+    except PyJWTError:
+        return None
+        
+    user = db.query(models.User).filter(models.User.username == username).first()
+    return user
+
+# Modify the WebSocket connection manager
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
-        self.user_cursors: Dict[str, dict] = {}
+        self.active_connections: List[Dict[str, any]] = []  # Store connection info including user
+        self.user_cursors: Dict[str, dict] = {}  # Now keyed by username instead of random ID
         self.shapes: List[dict] = []
         logger.info("ConnectionManager initialized")
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, user: Optional[models.User] = None):
         await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info(f"New client connected. Total connections: {len(self.active_connections)}")
-        logger.info(f"Active connection IDs: {[id(conn) for conn in self.active_connections]}")
+        connection_info = {
+            "socket": websocket,
+            "user": user
+        }
+        self.active_connections.append(connection_info)
+        logger.info(f"New client connected. User: {user.username if user else 'Anonymous'}")
+        logger.info(f"Total connections: {len(self.active_connections)}")
         
         # Send current state to the new client
         state_message = json.dumps({
@@ -73,40 +98,36 @@ class ConnectionManager:
             'payload': {
                 'shapes': self.shapes,
                 'cursors': [
-                    {k: v for k, v in cursor.items() if k != 'websocket'}
+                    {k: v for k, v in cursor.items() if k not in ['websocket', 'user']}
                     for cursor in self.user_cursors.values()
                 ]
             }
         })
-        logger.info(f"Sending initial state to new client. Current cursors: {[cursor.get('id') for cursor in self.user_cursors.values()]}")
+        logger.info(f"Sending initial state to new client. Current cursors: {[cursor.get('username') for cursor in self.user_cursors.values()]}")
         await websocket.send_text(state_message)
 
     def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-            # Find and remove the cursor for the disconnected user
-            disconnected_user = None
-            for user_id, cursor in self.user_cursors.items():
-                if cursor.get('websocket') == websocket:
-                    disconnected_user = user_id
-                    break
-            if disconnected_user:
-                logger.info(f"Removing cursor for disconnected user: {disconnected_user}")
-                del self.user_cursors[disconnected_user]
-                # Broadcast cursor removal
-                self._broadcast_cursor_removal(disconnected_user)
+        # Find and remove the connection
+        connection_to_remove = None
+        for conn in self.active_connections:
+            if conn["socket"] == websocket:
+                connection_to_remove = conn
+                break
+                
+        if connection_to_remove:
+            self.active_connections.remove(connection_to_remove)
+            user = connection_to_remove["user"]
+            if user:
+                username = user.username
+                if username in self.user_cursors:
+                    logger.info(f"Removing cursor for disconnected user: {username}")
+                    del self.user_cursors[username]
+                    # Broadcast cursor removal
+                    self._broadcast_cursor_removal(username)
+            
             logger.info(f"Client disconnected. Remaining connections: {len(self.active_connections)}")
-            logger.info(f"Remaining connection IDs: {[id(conn) for conn in self.active_connections]}")
 
-    async def _broadcast_cursor_removal(self, user_id: str):
-        logger.info(f"Broadcasting cursor removal for user: {user_id}")
-        removal_message = json.dumps({
-            'type': 'cursor_move',
-            'payload': {'id': user_id, 'remove': True}
-        })
-        await self._broadcast_message(removal_message)
-
-    async def broadcast(self, message: str, exclude_websocket: WebSocket = None):
+    async def broadcast(self, message: str, exclude_websocket: WebSocket = None, current_user: Optional[models.User] = None):
         try:
             data = json.loads(message)
             message_type = data.get('type')
@@ -114,21 +135,35 @@ class ConnectionManager:
             logger.info(f"Broadcasting message type: {message_type}")
 
             if message_type == 'cursor_move':
-                user_id = payload.get('id')
-                logger.info(f"Processing cursor_move for user: {user_id}")
+                if not current_user:  # Only handle cursor moves from authenticated users
+                    return
+                    
+                username = current_user.username
                 if payload.get('remove'):
-                    if user_id in self.user_cursors:
-                        logger.info(f"Removing cursor for user: {user_id}")
-                        del self.user_cursors[user_id]
-                    await self._broadcast_cursor_removal(user_id)
+                    if username in self.user_cursors:
+                        logger.info(f"Removing cursor for user: {username}")
+                        del self.user_cursors[username]
+                    await self._broadcast_cursor_removal(username)
                 else:
-                    # Store cursor with WebSocket reference
-                    cursor_data = {**payload, 'websocket': exclude_websocket}
-                    self.user_cursors[user_id] = cursor_data
-                    logger.info(f"Updated cursor for user {user_id}. Total cursors: {len(self.user_cursors)}")
-                    logger.info(f"Current cursor IDs: {list(self.user_cursors.keys())}")
-                    # Broadcast cursor without WebSocket reference
-                    broadcast_data = {k: v for k, v in cursor_data.items() if k != 'websocket'}
+                    # Update cursor data with user information
+                    cursor_data = {
+                        **payload,
+                        'id': username,  # Use username as ID
+                        'username': username,  # Use actual username
+                        'websocket': exclude_websocket,
+                        'user': current_user
+                    }
+                    self.user_cursors[username] = cursor_data
+                    logger.info(f"Updated cursor for user {username}. Total cursors: {len(self.user_cursors)}")
+                    
+                    # Broadcast cursor without sensitive information
+                    broadcast_data = {
+                        'id': username,
+                        'x': cursor_data['x'],
+                        'y': cursor_data['y'],
+                        'color': cursor_data['color'],
+                        'username': username
+                    }
                     cursor_message = json.dumps({
                         'type': 'cursor_move',
                         'payload': broadcast_data
@@ -165,7 +200,7 @@ class ConnectionManager:
                     'payload': {
                         'shapes': self.shapes,
                         'cursors': [
-                            {k: v for k, v in cursor.items() if k != 'websocket'}
+                            {k: v for k, v in cursor.items() if k not in ['websocket', 'user']}
                             for cursor in self.user_cursors.values()
                         ]
                     }
@@ -179,28 +214,34 @@ class ConnectionManager:
             logger.error(f"Error broadcasting message: {str(e)}", exc_info=True)
 
     async def _broadcast_message(self, message: str, exclude_websocket: WebSocket = None):
-        logger.info(f"Broadcasting to {len(self.active_connections)} clients (excluding sender)")
-        logger.info(f"Message type: {json.loads(message).get('type')}")
-        logger.info(f"Excluded websocket ID: {id(exclude_websocket) if exclude_websocket else None}")
-        logger.info(f"Active connection IDs: {[id(conn) for conn in self.active_connections]}")
+        logger.info(f"Broadcasting to {len(self.active_connections)} clients")
         
         disconnected = []
         sent_count = 0
-        for connection in self.active_connections:
-            if connection != exclude_websocket:
+        for conn in self.active_connections:
+            websocket = conn["socket"]
+            if websocket != exclude_websocket:
                 try:
-                    await connection.send_text(message)
+                    await websocket.send_text(message)
                     sent_count += 1
-                    logger.info(f"Successfully sent message to connection {id(connection)}")
+                    logger.info(f"Successfully sent message to user: {conn['user'].username if conn['user'] else 'Anonymous'}")
                 except Exception as e:
-                    logger.error(f"Error sending message to client {id(connection)}: {str(e)}")
-                    disconnected.append(connection)
+                    logger.error(f"Error sending message to client: {str(e)}")
+                    disconnected.append(websocket)
 
         logger.info(f"Successfully sent message to {sent_count} clients")
         
         # Clean up disconnected clients
-        for connection in disconnected:
-            await self.disconnect(connection)
+        for websocket in disconnected:
+            await self.disconnect(websocket)
+
+    async def _broadcast_cursor_removal(self, username: str):
+        logger.info(f"Broadcasting cursor removal for user: {username}")
+        removal_message = json.dumps({
+            'type': 'cursor_move',
+            'payload': {'id': username, 'remove': True}
+        })
+        await self._broadcast_message(removal_message)
 
 manager = ConnectionManager()
 
@@ -241,19 +282,25 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    logger.info(f"New WebSocket connection attempt from client {id(websocket)}")
-    await manager.connect(websocket)
+async def websocket_endpoint(
+    websocket: WebSocket,
+    token: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    user = await get_current_user_from_token(token, db)
+    logger.info(f"New WebSocket connection attempt from user: {user.username if user else 'Anonymous'}")
+    
+    await manager.connect(websocket, user)
     try:
         while True:
             data = await websocket.receive_text()
-            logger.info(f"Received message from client {id(websocket)}: {data[:200]}...")
-            await manager.broadcast(data, exclude_websocket=websocket)
+            logger.info(f"Received message from user {user.username if user else 'Anonymous'}: {data[:200]}...")
+            await manager.broadcast(data, exclude_websocket=websocket, current_user=user)
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for client {id(websocket)}")
+        logger.info(f"WebSocket disconnected for user {user.username if user else 'Anonymous'}")
         manager.disconnect(websocket)
     except Exception as e:
-        logger.error(f"WebSocket error for client {id(websocket)}: {str(e)}", exc_info=True)
+        logger.error(f"WebSocket error for user {user.username if user else 'Anonymous'}: {str(e)}", exc_info=True)
         manager.disconnect(websocket)
 
 @app.get("/")

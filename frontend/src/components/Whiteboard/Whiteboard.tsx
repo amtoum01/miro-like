@@ -89,8 +89,17 @@ const Whiteboard: React.FC = () => {
       return;
     }
 
-    console.log('Connecting to WebSocket at:', WS_URL);
-    wsRef.current = new WebSocket(WS_URL);
+    // Get the authentication token from localStorage
+    const token = localStorage.getItem('token');
+    if (!token) {
+      console.error('No authentication token found');
+      return;
+    }
+
+    // Append token to WebSocket URL
+    const wsUrlWithAuth = `${WS_URL}?token=${encodeURIComponent(token)}`;
+    console.log('Connecting to WebSocket at:', wsUrlWithAuth);
+    wsRef.current = new WebSocket(wsUrlWithAuth);
 
     wsRef.current.onopen = () => {
       console.log('Connected to WebSocket server');
