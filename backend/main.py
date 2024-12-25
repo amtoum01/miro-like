@@ -72,6 +72,7 @@ class ConnectionManager:
                 ]
             }
         })
+        logger.info(f"Sending initial state to new client. Cursors: {self.user_cursors}")
         await websocket.send_text(state_message)
 
     def disconnect(self, websocket: WebSocket):
@@ -84,12 +85,14 @@ class ConnectionManager:
                     disconnected_user = user_id
                     break
             if disconnected_user:
+                logger.info(f"Removing cursor for disconnected user: {disconnected_user}")
                 del self.user_cursors[disconnected_user]
                 # Broadcast cursor removal
                 self._broadcast_cursor_removal(disconnected_user)
             logger.info(f"Client disconnected. Total connections: {len(self.active_connections)}")
 
     async def _broadcast_cursor_removal(self, user_id: str):
+        logger.info(f"Broadcasting cursor removal for user: {user_id}")
         removal_message = json.dumps({
             'type': 'cursor_move',
             'payload': {'id': user_id, 'remove': True}
@@ -104,20 +107,24 @@ class ConnectionManager:
 
             if message_type == 'cursor_move':
                 user_id = payload.get('id')
+                logger.info(f"Processing cursor_move for user: {user_id}")
                 if payload.get('remove'):
                     if user_id in self.user_cursors:
+                        logger.info(f"Removing cursor for user: {user_id}")
                         del self.user_cursors[user_id]
                     await self._broadcast_cursor_removal(user_id)
                 else:
                     # Store cursor with WebSocket reference
                     cursor_data = {**payload, 'websocket': exclude_websocket}
                     self.user_cursors[user_id] = cursor_data
+                    logger.info(f"Updated cursor for user {user_id}. Total cursors: {len(self.user_cursors)}")
                     # Broadcast cursor without WebSocket reference
                     broadcast_data = {k: v for k, v in cursor_data.items() if k != 'websocket'}
                     cursor_message = json.dumps({
                         'type': 'cursor_move',
                         'payload': broadcast_data
                     })
+                    logger.info(f"Broadcasting cursor update: {broadcast_data}")
                     await self._broadcast_message(cursor_message, exclude_websocket)
                 return
 
@@ -142,6 +149,7 @@ class ConnectionManager:
                 await self._broadcast_message(message)
 
             elif message_type == 'request_state':
+                logger.info("Received state request")
                 # Send current state to the requesting client
                 state_message = json.dumps({
                     'type': 'current_state',
@@ -153,6 +161,7 @@ class ConnectionManager:
                         ]
                     }
                 })
+                logger.info(f"Sending current state. Cursors: {self.user_cursors}")
                 if exclude_websocket:
                     await exclude_websocket.send_text(state_message)
                 return
@@ -161,6 +170,7 @@ class ConnectionManager:
             logger.error(f"Error broadcasting message: {str(e)}")
 
     async def _broadcast_message(self, message: str, exclude_websocket: WebSocket = None):
+        logger.info(f"Broadcasting message to {len(self.active_connections)} clients (excluding sender)")
         disconnected = []
         for connection in self.active_connections:
             if connection != exclude_websocket:

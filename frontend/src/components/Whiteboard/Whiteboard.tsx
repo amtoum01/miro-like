@@ -282,9 +282,9 @@ const Whiteboard: React.FC = () => {
       return [...filtered, cursorData];
     });
     
-    // Throttle cursor updates to WebSocket
+    // Send cursor updates more frequently
     const now = Date.now();
-    if (!lastCursorUpdate.current || now - lastCursorUpdate.current > 50) {
+    if (!lastCursorUpdate.current || now - lastCursorUpdate.current > 30) {
       sendToWebSocket({ type: 'cursor_move', payload: cursorData });
       lastCursorUpdate.current = now;
     }
@@ -302,30 +302,36 @@ const Whiteboard: React.FC = () => {
     let updatedShape = { ...lastShape };
 
     if (lastShape.type === 'rectangle') {
+      const width = (pos.x || 0) - (startPos.x || 0);
+      const height = (pos.y || 0) - (startPos.y || 0);
+      
+      // Adjust position for negative dimensions
       updatedShape = {
         ...lastShape,
-        width: Math.max(0, (pos.x || 0) - (startPos.x || 0)),
-        height: Math.max(0, (pos.y || 0) - (startPos.y || 0)),
+        x: width < 0 ? pos.x : startPos.x,
+        y: height < 0 ? pos.y : startPos.y,
+        width: Math.abs(width),
+        height: Math.abs(height),
       };
     } else if (lastShape.type === 'circle') {
       const dx = (pos.x || 0) - (startPos.x || 0);
       const dy = (pos.y || 0) - (startPos.y || 0);
       updatedShape = {
         ...lastShape,
-        radius: Math.max(0, Math.sqrt(dx * dx + dy * dy)),
+        radius: Math.sqrt(dx * dx + dy * dy),
       };
     } else if (lastShape.type === 'star') {
       const dx = (pos.x || 0) - (startPos.x || 0);
       const dy = (pos.y || 0) - (startPos.y || 0);
-      const radius = Math.max(0, Math.sqrt(dx * dx + dy * dy));
+      const radius = Math.sqrt(dx * dx + dy * dy);
       updatedShape = {
         ...lastShape,
-        innerRadius: radius * 0.5,
+        innerRadius: radius * 0.4,
         outerRadius: radius,
       };
     }
 
-    setShapes([...shapes.slice(0, -1), updatedShape]);
+    setShapes(prevShapes => [...prevShapes.slice(0, -1), updatedShape]);
     sendToWebSocket({ type: 'shape_update', payload: updatedShape });
   };
 
@@ -413,10 +419,20 @@ const Whiteboard: React.FC = () => {
           height={Math.max(0, window.innerHeight)}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
-          onMouseUp={() => setIsDrawing(false)}
+          onMouseUp={() => {
+            setIsDrawing(false);
+            const lastShape = shapes[shapes.length - 1];
+            if (lastShape) {
+              sendToWebSocket({ type: 'shape_update', payload: lastShape });
+            }
+          }}
           onMouseLeave={() => {
             setIsDrawing(false);
-            // Remove cursor when mouse leaves the canvas
+            const lastShape = shapes[shapes.length - 1];
+            if (lastShape) {
+              sendToWebSocket({ type: 'shape_update', payload: lastShape });
+            }
+            console.log('Mouse left canvas, removing cursor');
             sendToWebSocket({
               type: 'cursor_move',
               payload: { id: userId, remove: true }
@@ -501,33 +517,46 @@ const Whiteboard: React.FC = () => {
               />
             )}
             {cursors.map(cursor => {
-              if (!cursor || typeof cursor.x !== 'number' || typeof cursor.y !== 'number') return null;
+              console.log('Rendering cursor:', cursor);
+              if (!cursor || typeof cursor.x !== 'number' || typeof cursor.y !== 'number') {
+                  console.log('Invalid cursor data:', cursor);
+                  return null;
+              }
               return (
-                <Group key={cursor.id}>
-                  <Circle
-                    x={cursor.x || 0}
-                    y={cursor.y || 0}
-                    radius={5}
-                    fill={cursor.color}
-                  />
-                  <Rect
-                    x={(cursor.x || 0) + 10}
-                    y={(cursor.y || 0) + 10}
-                    width={70}
-                    height={20}
-                    fill="white"
-                    stroke={cursor.color}
-                    strokeWidth={1}
-                    cornerRadius={5}
-                  />
-                  <Text
-                    x={(cursor.x || 0) + 15}
-                    y={(cursor.y || 0) + 15}
-                    text={cursor.username}
-                    fontSize={12}
-                    fill={cursor.color}
-                  />
-                </Group>
+                  <Group key={cursor.id}>
+                      <Circle
+                          x={cursor.x || 0}
+                          y={cursor.y || 0}
+                          radius={8}
+                          fill={cursor.color}
+                          shadowColor="black"
+                          shadowBlur={2}
+                          shadowOffset={{ x: 1, y: 1 }}
+                          shadowOpacity={0.4}
+                      />
+                      <Rect
+                          x={(cursor.x || 0) + 10}
+                          y={(cursor.y || 0) + 10}
+                          width={100}
+                          height={24}
+                          fill="white"
+                          stroke={cursor.color}
+                          strokeWidth={2}
+                          cornerRadius={5}
+                          shadowColor="black"
+                          shadowBlur={2}
+                          shadowOffset={{ x: 1, y: 1 }}
+                          shadowOpacity={0.2}
+                      />
+                      <Text
+                          x={(cursor.x || 0) + 15}
+                          y={(cursor.y || 0) + 15}
+                          text={cursor.username}
+                          fontSize={14}
+                          fill={cursor.color}
+                          fontStyle="bold"
+                      />
+                  </Group>
               );
             })}
           </Layer>
@@ -537,13 +566,33 @@ const Whiteboard: React.FC = () => {
         position: 'fixed',
         bottom: 10,
         right: 10,
-        padding: '5px 10px',
+        padding: '10px',
         borderRadius: 5,
-        backgroundColor: wsRef.current?.readyState === WebSocket.OPEN ? '#4CAF50' : '#f44336',
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
         color: 'white',
         fontSize: 12,
+        fontFamily: 'monospace',
+        zIndex: 1000,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '5px',
       }}>
-        {wsRef.current?.readyState === WebSocket.OPEN ? 'Connected' : 'Disconnected'}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '5px',
+        }}>
+          <div style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            backgroundColor: wsRef.current?.readyState === WebSocket.OPEN ? '#4CAF50' : '#f44336',
+          }}></div>
+          {wsRef.current?.readyState === WebSocket.OPEN ? 'Connected' : 'Disconnected'}
+        </div>
+        <div>Cursors: {cursors.length}</div>
+        <div>Your ID: {userId.slice(-4)}</div>
+        <div>Your Color: <span style={{ color: userColor }}>{userColor}</span></div>
       </div>
     </WhiteboardContainer>
   );
