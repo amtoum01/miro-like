@@ -27,11 +27,8 @@ app = FastAPI()
 
 # Get environment
 is_development = os.getenv('ENV', 'production') == 'development'
-allowed_origins = ["*"] if is_development else [
-    "https://miro-like-chi.vercel.app",
-    "http://localhost:3000",
-    "https://miro-like-production.up.railway.app"
-]
+# Allow all origins for now to test cross-computer functionality
+allowed_origins = ["*"]
 
 logger.info(f"Environment: {'development' if is_development else 'production'}")
 logger.info(f"Allowed origins: {allowed_origins}")
@@ -296,20 +293,23 @@ async def websocket_endpoint(
     token: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
+    client_host = websocket.client.host
+    logger.info(f"New WebSocket connection attempt from IP: {client_host}")
+    
     user = await get_current_user_from_token(token, db)
-    logger.info(f"New WebSocket connection attempt from user: {user.username if user else 'Anonymous'}")
+    logger.info(f"User authenticated: {user.username if user else 'Anonymous'} from IP: {client_host}")
     
     await manager.connect(websocket, user)
     try:
         while True:
             data = await websocket.receive_text()
-            logger.info(f"Received message from user {user.username if user else 'Anonymous'}: {data[:200]}...")
+            logger.info(f"Received message from user {user.username if user else 'Anonymous'} at {client_host}: {data[:200]}...")
             await manager.broadcast(data, exclude_websocket=websocket, current_user=user)
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for user {user.username if user else 'Anonymous'}")
+        logger.info(f"WebSocket disconnected for user {user.username if user else 'Anonymous'} at {client_host}")
         manager.disconnect(websocket)
     except Exception as e:
-        logger.error(f"WebSocket error for user {user.username if user else 'Anonymous'}: {str(e)}", exc_info=True)
+        logger.error(f"WebSocket error for user {user.username if user else 'Anonymous'} at {client_host}: {str(e)}", exc_info=True)
         manager.disconnect(websocket)
 
 @app.get("/")
