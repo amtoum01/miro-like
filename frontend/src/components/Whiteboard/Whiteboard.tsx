@@ -78,69 +78,103 @@ const Whiteboard: React.FC = () => {
   const [userColor] = useState<string>(getRandomColor());
   const stageRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const lastCursorUpdate = useRef<number>(0);
 
   useEffect(() => {
     // Connect to WebSocket
+    console.log('Connecting to WebSocket at:', WS_URL);
     wsRef.current = new WebSocket(WS_URL);
 
     wsRef.current.onopen = () => {
       console.log('Connected to WebSocket server');
+      // Send initial cursor position
+      const initialCursor: Cursor = {
+        id: userId,
+        x: 0,
+        y: 0,
+        color: userColor,
+        username: 'User ' + userId.slice(-4),
+      };
+      sendToWebSocket({ type: 'cursor_move', payload: initialCursor });
+    };
+
+    wsRef.current.onclose = () => {
+      console.log('Disconnected from WebSocket server');
+      // Remove disconnected cursors
+      setCursors(prevCursors => prevCursors.filter(c => c.id !== userId));
+    };
+
+    wsRef.current.onerror = (error) => {
+      console.error('WebSocket error:', error);
     };
 
     wsRef.current.onmessage = (event) => {
-      const message: WebSocketMessage = JSON.parse(event.data);
-      
-      switch (message.type) {
-        case 'cursor_move':
-          const cursor = message.payload;
-          if (cursor.id !== userId) {
-            setCursors(prevCursors => {
-              const filtered = prevCursors.filter(c => c.id !== cursor.id);
-              return [...filtered, cursor];
-            });
-          }
-          break;
-        case 'shape_add':
-          const newShape = message.payload;
-          if (newShape.userId !== userId) {
-            setShapes(prevShapes => [...prevShapes, newShape]);
-          }
-          break;
-        case 'shape_update':
-          const updatedShape = message.payload;
-          if (updatedShape.userId !== userId) {
-            setShapes(prevShapes => {
-              const filtered = prevShapes.filter(s => s.id !== updatedShape.id);
-              return [...filtered, updatedShape];
-            });
-          }
-          break;
-        case 'shape_delete':
-          const deletedShapeIds = message.payload;
-          if (deletedShapeIds.userId !== userId) {
-            setShapes(prevShapes => 
-              prevShapes.filter(shape => !deletedShapeIds.includes(shape.id))
-            );
-          }
-          break;
-        case 'clear':
-          if (message.payload.userId !== userId) {
-            setShapes([]);
-          }
-          break;
+      console.log('Received WebSocket message:', event.data);
+      try {
+        const message: WebSocketMessage = JSON.parse(event.data);
+        
+        switch (message.type) {
+          case 'cursor_move':
+            const cursor = message.payload;
+            if (cursor.id !== userId) {
+              console.log('Updating cursor for user:', cursor.username);
+              setCursors(prevCursors => {
+                const filtered = prevCursors.filter(c => c.id !== cursor.id);
+                return [...filtered, cursor];
+              });
+            }
+            break;
+          case 'shape_add':
+            const newShape = message.payload;
+            if (newShape.userId !== userId) {
+              setShapes(prevShapes => [...prevShapes, newShape]);
+            }
+            break;
+          case 'shape_update':
+            const updatedShape = message.payload;
+            if (updatedShape.userId !== userId) {
+              setShapes(prevShapes => {
+                const filtered = prevShapes.filter(s => s.id !== updatedShape.id);
+                return [...filtered, updatedShape];
+              });
+            }
+            break;
+          case 'shape_delete':
+            const deletedShapeIds = message.payload;
+            if (deletedShapeIds.userId !== userId) {
+              setShapes(prevShapes => 
+                prevShapes.filter(shape => !deletedShapeIds.includes(shape.id))
+              );
+            }
+            break;
+          case 'clear':
+            if (message.payload.userId !== userId) {
+              setShapes([]);
+            }
+            break;
+        }
+      } catch (error) {
+        console.error('Error processing WebSocket message:', error);
       }
     };
 
+    // Cleanup function
     return () => {
+      console.log('Cleaning up WebSocket connection');
       if (wsRef.current) {
         wsRef.current.close();
       }
+      // Clear cursors when component unmounts
+      setCursors([]);
     };
-  }, [userId]);
+  }, [userId, userColor]);
 
   const sendToWebSocket = (message: WebSocketMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log('Sending WebSocket message:', message);
       wsRef.current.send(JSON.stringify(message));
+    } else {
+      console.warn('WebSocket is not connected. Message not sent:', message);
     }
   };
 
@@ -193,7 +227,13 @@ const Whiteboard: React.FC = () => {
       color: userColor,
       username: 'User ' + userId.slice(-4),
     };
-    sendToWebSocket({ type: 'cursor_move', payload: cursorData });
+    
+    // Throttle cursor updates to avoid overwhelming the WebSocket
+    const now = Date.now();
+    if (!lastCursorUpdate.current || now - lastCursorUpdate.current > 50) {
+      sendToWebSocket({ type: 'cursor_move', payload: cursorData });
+      lastCursorUpdate.current = now;
+    }
 
     if (selectedTool === 'eraser' && isDrawing) {
       eraseShapesAtPosition(pos.x, pos.y);
@@ -318,6 +358,13 @@ const Whiteboard: React.FC = () => {
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={() => setIsDrawing(false)}
+          onMouseLeave={() => {
+            // Remove cursor when mouse leaves the canvas
+            sendToWebSocket({
+              type: 'cursor_move',
+              payload: { id: userId, remove: true }
+            });
+          }}
           ref={stageRef}
         >
           <Layer>
@@ -425,6 +472,18 @@ const Whiteboard: React.FC = () => {
           </Layer>
         </Stage>
       </Canvas>
+      <div style={{
+        position: 'fixed',
+        bottom: 10,
+        right: 10,
+        padding: '5px 10px',
+        borderRadius: 5,
+        backgroundColor: wsRef.current?.readyState === WebSocket.OPEN ? '#4CAF50' : '#f44336',
+        color: 'white',
+        fontSize: 12,
+      }}>
+        {wsRef.current?.readyState === WebSocket.OPEN ? 'Connected' : 'Disconnected'}
+      </div>
     </WhiteboardContainer>
   );
 };

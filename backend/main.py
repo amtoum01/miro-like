@@ -5,6 +5,11 @@ from sqlalchemy.orm import Session
 from typing import List, Dict
 import json
 import os
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 import models
 import auth
@@ -38,18 +43,54 @@ class Token(BaseModel):
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        self.user_cursors: Dict[str, dict] = {}
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        logger.info(f"Client connected. Total connections: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            logger.info(f"Client disconnected. Total connections: {len(self.active_connections)}")
 
     async def broadcast(self, message: str, exclude_websocket: WebSocket = None):
+        try:
+            data = json.loads(message)
+            message_type = data.get('type')
+            payload = data.get('payload', {})
+
+            if message_type == 'cursor_move':
+                user_id = payload.get('id')
+                if payload.get('remove'):
+                    # Remove cursor when user leaves
+                    self.user_cursors.pop(user_id, None)
+                    # Broadcast cursor removal to all clients
+                    removal_message = json.dumps({
+                        'type': 'cursor_move',
+                        'payload': {'id': user_id, 'remove': True}
+                    })
+                    await self._broadcast_message(removal_message, exclude_websocket)
+                else:
+                    # Update cursor position
+                    self.user_cursors[user_id] = payload
+            
+            # Broadcast the original message
+            await self._broadcast_message(message, exclude_websocket)
+            
+        except Exception as e:
+            logger.error(f"Error broadcasting message: {str(e)}")
+
+    async def _broadcast_message(self, message: str, exclude_websocket: WebSocket = None):
         for connection in self.active_connections:
             if connection != exclude_websocket:
-                await connection.send_text(message)
+                try:
+                    await connection.send_text(message)
+                except Exception as e:
+                    logger.error(f"Error sending message to client: {str(e)}")
+                    # Remove failed connection
+                    await self.disconnect(connection)
 
 manager = ConnectionManager()
 
@@ -95,8 +136,12 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
+            logger.info(f"Received message: {data[:200]}...")  # Log first 200 chars
             await manager.broadcast(data, exclude_websocket=websocket)
     except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {str(e)}")
         manager.disconnect(websocket)
 
 @app.get("/")
