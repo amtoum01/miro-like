@@ -202,21 +202,26 @@ const Whiteboard: React.FC = () => {
   };
 
   const handleMouseDown = (e: any) => {
-    const pos = e.target.getStage().getPointerPosition();
+    const stage = e.target.getStage();
+    if (!stage) return;
+
+    const pos = stage.getPointerPosition();
+    if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return;
+
     setIsDrawing(true);
-    setStartPos(pos);
-    setEraserPos(pos);
+    setStartPos({ x: pos.x || 0, y: pos.y || 0 });
+    setEraserPos({ x: pos.x || 0, y: pos.y || 0 });
 
     if (selectedTool === 'eraser') {
-      eraseShapesAtPosition(pos.x, pos.y);
+      eraseShapesAtPosition(pos.x || 0, pos.y || 0);
       return;
     }
 
     const newShape: Shape = {
       id: Date.now().toString(),
       type: selectedTool,
-      x: pos.x,
-      y: pos.y,
+      x: pos.x || 0,
+      y: pos.y || 0,
       width: 0,
       height: 0,
       userId,
@@ -239,14 +244,19 @@ const Whiteboard: React.FC = () => {
   };
 
   const handleMouseMove = (e: any) => {
-    const pos = e.target.getStage().getPointerPosition();
-    setEraserPos(pos);
+    const stage = e.target.getStage();
+    if (!stage) return;
+
+    const pos = stage.getPointerPosition();
+    if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return;
+
+    setEraserPos({ x: pos.x || 0, y: pos.y || 0 });
 
     // Send cursor position
     const cursorData: Cursor = {
       id: userId,
-      x: pos.x,
-      y: pos.y,
+      x: pos.x || 0,
+      y: pos.y || 0,
       color: userColor,
       username: 'User ' + userId.slice(-4),
     };
@@ -259,32 +269,34 @@ const Whiteboard: React.FC = () => {
     }
 
     if (selectedTool === 'eraser' && isDrawing) {
-      eraseShapesAtPosition(pos.x, pos.y);
+      eraseShapesAtPosition(pos.x || 0, pos.y || 0);
       return;
     }
 
     if (!isDrawing) return;
 
     const lastShape = shapes[shapes.length - 1];
+    if (!lastShape) return;
+
     let updatedShape = { ...lastShape };
 
     if (lastShape.type === 'rectangle') {
       updatedShape = {
         ...lastShape,
-        width: pos.x - startPos.x,
-        height: pos.y - startPos.y,
+        width: Math.max(0, (pos.x || 0) - (startPos.x || 0)),
+        height: Math.max(0, (pos.y || 0) - (startPos.y || 0)),
       };
     } else if (lastShape.type === 'circle') {
-      const dx = pos.x - startPos.x;
-      const dy = pos.y - startPos.y;
+      const dx = (pos.x || 0) - (startPos.x || 0);
+      const dy = (pos.y || 0) - (startPos.y || 0);
       updatedShape = {
         ...lastShape,
-        radius: Math.sqrt(dx * dx + dy * dy),
+        radius: Math.max(0, Math.sqrt(dx * dx + dy * dy)),
       };
     } else if (lastShape.type === 'star') {
-      const dx = pos.x - startPos.x;
-      const dy = pos.y - startPos.y;
-      const radius = Math.sqrt(dx * dx + dy * dy);
+      const dx = (pos.x || 0) - (startPos.x || 0);
+      const dy = (pos.y || 0) - (startPos.y || 0);
+      const radius = Math.max(0, Math.sqrt(dx * dx + dy * dy));
       updatedShape = {
         ...lastShape,
         innerRadius: radius * 0.5,
@@ -376,12 +388,13 @@ const Whiteboard: React.FC = () => {
       </Toolbar>
       <Canvas>
         <Stage
-          width={window.innerWidth - 200}
-          height={window.innerHeight}
+          width={Math.max(0, window.innerWidth - 200)}
+          height={Math.max(0, window.innerHeight)}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={() => setIsDrawing(false)}
           onMouseLeave={() => {
+            setIsDrawing(false);
             // Remove cursor when mouse leaves the canvas
             sendToWebSocket({
               type: 'cursor_move',
@@ -392,6 +405,7 @@ const Whiteboard: React.FC = () => {
         >
           <Layer>
             {shapes.map((shape) => {
+              if (!shape || typeof shape.x !== 'number' || typeof shape.y !== 'number') return null;
               if (shape.type === 'rectangle') {
                 return (
                   <Rect
@@ -457,41 +471,44 @@ const Whiteboard: React.FC = () => {
             })}
             {selectedTool === 'eraser' && (
               <Circle
-                x={eraserPos.x}
-                y={eraserPos.y}
+                x={eraserPos.x || 0}
+                y={eraserPos.y || 0}
                 radius={10}
                 fill="rgba(255, 0, 0, 0.2)"
                 stroke="red"
                 strokeWidth={1}
               />
             )}
-            {cursors.map(cursor => (
-              <Group key={cursor.id}>
-                <Circle
-                  x={cursor.x}
-                  y={cursor.y}
-                  radius={5}
-                  fill={cursor.color}
-                />
-                <Rect
-                  x={cursor.x + 10}
-                  y={cursor.y + 10}
-                  width={70}
-                  height={20}
-                  fill="white"
-                  stroke={cursor.color}
-                  strokeWidth={1}
-                  cornerRadius={5}
-                />
-                <Text
-                  x={cursor.x + 15}
-                  y={cursor.y + 15}
-                  text={cursor.username}
-                  fontSize={12}
-                  fill={cursor.color}
-                />
-              </Group>
-            ))}
+            {cursors.map(cursor => {
+              if (!cursor || typeof cursor.x !== 'number' || typeof cursor.y !== 'number') return null;
+              return (
+                <Group key={cursor.id}>
+                  <Circle
+                    x={cursor.x || 0}
+                    y={cursor.y || 0}
+                    radius={5}
+                    fill={cursor.color}
+                  />
+                  <Rect
+                    x={(cursor.x || 0) + 10}
+                    y={(cursor.y || 0) + 10}
+                    width={70}
+                    height={20}
+                    fill="white"
+                    stroke={cursor.color}
+                    strokeWidth={1}
+                    cornerRadius={5}
+                  />
+                  <Text
+                    x={(cursor.x || 0) + 15}
+                    y={(cursor.y || 0) + 15}
+                    text={cursor.username}
+                    fontSize={12}
+                    fill={cursor.color}
+                  />
+                </Group>
+              );
+            })}
           </Layer>
         </Stage>
       </Canvas>
