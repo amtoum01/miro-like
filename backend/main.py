@@ -8,7 +8,10 @@ import os
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 import models
@@ -22,7 +25,14 @@ app = FastAPI()
 
 # Get environment
 is_development = os.getenv('ENV', 'production') == 'development'
-allowed_origins = ["*"] if is_development else ["https://miro-like-chi.vercel.app", "http://localhost:3000"]
+allowed_origins = ["*"] if is_development else [
+    "https://miro-like-chi.vercel.app",
+    "http://localhost:3000",
+    "https://miro-like-production.up.railway.app"
+]
+
+logger.info(f"Environment: {'development' if is_development else 'production'}")
+logger.info(f"Allowed origins: {allowed_origins}")
 
 # CORS configuration
 app.add_middleware(
@@ -48,14 +58,14 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.user_cursors: Dict[str, dict] = {}
-        # Single board for all users
         self.shapes: List[dict] = []
+        logger.info("ConnectionManager initialized")
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        logger.info(f"Client connected. Total connections: {len(self.active_connections)}")
-        logger.info(f"Active connections: {[id(conn) for conn in self.active_connections]}")
+        logger.info(f"New client connected. Total connections: {len(self.active_connections)}")
+        logger.info(f"Active connection IDs: {[id(conn) for conn in self.active_connections]}")
         
         # Send current state to the new client
         state_message = json.dumps({
@@ -68,7 +78,7 @@ class ConnectionManager:
                 ]
             }
         })
-        logger.info(f"Sending initial state to new client. Cursors: {self.user_cursors}")
+        logger.info(f"Sending initial state to new client. Current cursors: {[cursor.get('id') for cursor in self.user_cursors.values()]}")
         await websocket.send_text(state_message)
 
     def disconnect(self, websocket: WebSocket):
@@ -85,8 +95,8 @@ class ConnectionManager:
                 del self.user_cursors[disconnected_user]
                 # Broadcast cursor removal
                 self._broadcast_cursor_removal(disconnected_user)
-            logger.info(f"Client disconnected. Total connections: {len(self.active_connections)}")
-            logger.info(f"Remaining connections: {[id(conn) for conn in self.active_connections]}")
+            logger.info(f"Client disconnected. Remaining connections: {len(self.active_connections)}")
+            logger.info(f"Remaining connection IDs: {[id(conn) for conn in self.active_connections]}")
 
     async def _broadcast_cursor_removal(self, user_id: str):
         logger.info(f"Broadcasting cursor removal for user: {user_id}")
@@ -101,6 +111,7 @@ class ConnectionManager:
             data = json.loads(message)
             message_type = data.get('type')
             payload = data.get('payload', {})
+            logger.info(f"Broadcasting message type: {message_type}")
 
             if message_type == 'cursor_move':
                 user_id = payload.get('id')
@@ -115,6 +126,7 @@ class ConnectionManager:
                     cursor_data = {**payload, 'websocket': exclude_websocket}
                     self.user_cursors[user_id] = cursor_data
                     logger.info(f"Updated cursor for user {user_id}. Total cursors: {len(self.user_cursors)}")
+                    logger.info(f"Current cursor IDs: {list(self.user_cursors.keys())}")
                     # Broadcast cursor without WebSocket reference
                     broadcast_data = {k: v for k, v in cursor_data.items() if k != 'websocket'}
                     cursor_message = json.dumps({
@@ -164,23 +176,28 @@ class ConnectionManager:
                 return
             
         except Exception as e:
-            logger.error(f"Error broadcasting message: {str(e)}")
+            logger.error(f"Error broadcasting message: {str(e)}", exc_info=True)
 
     async def _broadcast_message(self, message: str, exclude_websocket: WebSocket = None):
-        logger.info(f"Broadcasting message to {len(self.active_connections)} clients (excluding sender)")
+        logger.info(f"Broadcasting to {len(self.active_connections)} clients (excluding sender)")
         logger.info(f"Message type: {json.loads(message).get('type')}")
-        logger.info(f"Excluded websocket: {id(exclude_websocket) if exclude_websocket else None}")
-        logger.info(f"Active connections: {[id(conn) for conn in self.active_connections]}")
+        logger.info(f"Excluded websocket ID: {id(exclude_websocket) if exclude_websocket else None}")
+        logger.info(f"Active connection IDs: {[id(conn) for conn in self.active_connections]}")
+        
         disconnected = []
+        sent_count = 0
         for connection in self.active_connections:
             if connection != exclude_websocket:
                 try:
                     await connection.send_text(message)
+                    sent_count += 1
                     logger.info(f"Successfully sent message to connection {id(connection)}")
                 except Exception as e:
                     logger.error(f"Error sending message to client {id(connection)}: {str(e)}")
                     disconnected.append(connection)
 
+        logger.info(f"Successfully sent message to {sent_count} clients")
+        
         # Clean up disconnected clients
         for connection in disconnected:
             await self.disconnect(connection)
@@ -225,16 +242,18 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    logger.info(f"New WebSocket connection attempt from client {id(websocket)}")
     await manager.connect(websocket)
     try:
         while True:
             data = await websocket.receive_text()
-            logger.info(f"Received message: {data[:200]}...")  # Log first 200 chars
+            logger.info(f"Received message from client {id(websocket)}: {data[:200]}...")
             await manager.broadcast(data, exclude_websocket=websocket)
     except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for client {id(websocket)}")
         manager.disconnect(websocket)
     except Exception as e:
-        logger.error(f"WebSocket error: {str(e)}")
+        logger.error(f"WebSocket error for client {id(websocket)}: {str(e)}", exc_info=True)
         manager.disconnect(websocket)
 
 @app.get("/")
