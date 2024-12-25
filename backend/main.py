@@ -53,7 +53,9 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.user_cursors: Dict[str, dict] = {}
-        self.shapes: List[dict] = []  # Store current shapes
+        self.boards: Dict[str, List[dict]] = {
+            'default': []  # Default board that everyone will use
+        }
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -70,6 +72,7 @@ class ConnectionManager:
             data = json.loads(message)
             message_type = data.get('type')
             payload = data.get('payload', {})
+            board_id = payload.get('boardId', 'default')  # Use default board if not specified
 
             if message_type == 'cursor_move':
                 user_id = payload.get('id')
@@ -86,27 +89,36 @@ class ConnectionManager:
                     # Update cursor position
                     self.user_cursors[user_id] = payload
             elif message_type == 'shape_add':
-                self.shapes.append(payload)
+                if board_id not in self.boards:
+                    self.boards[board_id] = []
+                self.boards[board_id].append(payload)
             elif message_type == 'shape_update':
                 # Update existing shape
-                for i, shape in enumerate(self.shapes):
-                    if shape.get('id') == payload.get('id'):
-                        self.shapes[i] = payload
-                        break
+                if board_id in self.boards:
+                    for i, shape in enumerate(self.boards[board_id]):
+                        if shape.get('id') == payload.get('id'):
+                            self.boards[board_id][i] = payload
+                            break
             elif message_type == 'shape_delete':
                 # Remove shapes
-                shape_ids = payload.get('ids', [])
-                self.shapes = [s for s in self.shapes if s.get('id') not in shape_ids]
+                if board_id in self.boards:
+                    shape_ids = payload.get('ids', [])
+                    self.boards[board_id] = [
+                        s for s in self.boards[board_id] 
+                        if s.get('id') not in shape_ids
+                    ]
             elif message_type == 'clear':
-                self.shapes = []
+                if board_id in self.boards:
+                    self.boards[board_id] = []
             elif message_type == 'request_state':
                 # Send current state to the requesting client
                 state_message = json.dumps({
                     'type': 'current_state',
                     'payload': {
-                        'shapes': self.shapes,
+                        'shapes': self.boards.get(board_id, []),
                         'cursors': list(self.user_cursors.values()),
-                        'userId': payload.get('userId')
+                        'userId': payload.get('userId'),
+                        'boardId': board_id
                     }
                 })
                 if exclude_websocket:
