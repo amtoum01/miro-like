@@ -67,8 +67,6 @@ const getRandomColor = () => {
   return colors[Math.floor(Math.random() * colors.length)];
 };
 
-const DEFAULT_BOARD_ID = 'default';
-
 const Whiteboard: React.FC = () => {
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [selectedTool, setSelectedTool] = useState<Shape['type']>('rectangle');
