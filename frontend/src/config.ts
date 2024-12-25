@@ -1,11 +1,9 @@
-// API URLs
-const BACKEND_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://miro-like-production.up.railway.app'  // Railway URL
-  : 'http://localhost:8000';
+const isDevelopment = process.env.NODE_ENV === 'development';
 
-// WebSocket URLs
-const WS_URL = process.env.NODE_ENV === 'production'
-  ? 'wss://miro-like-production.up.railway.app'    // Railway URL with wss://
-  : 'ws://localhost:8000';
+export const BACKEND_URL = isDevelopment
+  ? 'http://localhost:8000'
+  : 'https://miro-like-production.up.railway.app';
 
-export { BACKEND_URL, WS_URL }; 
+export const WS_URL = isDevelopment
+  ? 'ws://localhost:8000/ws'
+  : 'wss://miro-like-production.up.railway.app/ws'; 

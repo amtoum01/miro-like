@@ -79,14 +79,22 @@ const Whiteboard: React.FC = () => {
   const stageRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const lastCursorUpdate = useRef<number>(0);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 5;
 
-  useEffect(() => {
-    // Connect to WebSocket
+  const connectWebSocket = () => {
+    if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      console.error('Max reconnection attempts reached');
+      return;
+    }
+
     console.log('Connecting to WebSocket at:', WS_URL);
     wsRef.current = new WebSocket(WS_URL);
 
     wsRef.current.onopen = () => {
       console.log('Connected to WebSocket server');
+      reconnectAttemptsRef.current = 0;
       // Send initial cursor position
       const initialCursor: Cursor = {
         id: userId,
@@ -102,6 +110,15 @@ const Whiteboard: React.FC = () => {
       console.log('Disconnected from WebSocket server');
       // Remove disconnected cursors
       setCursors(prevCursors => prevCursors.filter(c => c.id !== userId));
+      
+      // Try to reconnect after a delay
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      reconnectTimeoutRef.current = setTimeout(() => {
+        reconnectAttemptsRef.current++;
+        connectWebSocket();
+      }, 3000); // Retry after 3 seconds
     };
 
     wsRef.current.onerror = (error) => {
@@ -157,10 +174,16 @@ const Whiteboard: React.FC = () => {
         console.error('Error processing WebSocket message:', error);
       }
     };
+  };
 
-    // Cleanup function
+  useEffect(() => {
+    connectWebSocket();
+
     return () => {
       console.log('Cleaning up WebSocket connection');
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
       if (wsRef.current) {
         wsRef.current.close();
       }
