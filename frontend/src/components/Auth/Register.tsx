@@ -28,9 +28,8 @@ const Register: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
-        credentials: 'include',
-        mode: 'cors',
         body: JSON.stringify({
           email,
           username,
