@@ -133,20 +133,34 @@ const Whiteboard: React.FC = () => {
       console.log('Received WebSocket message:', event.data);
       try {
         const message: WebSocketMessage = JSON.parse(event.data);
+        console.log('Parsed message:', message);
         
         switch (message.type) {
           case 'cursor_move':
             const cursor = message.payload;
+            console.log('Processing cursor_move:', cursor);
             if (cursor.id !== userId) {
-              console.log('Received cursor update:', cursor);
+              console.log('Received cursor update for other user:', cursor);
               if (cursor.remove) {
-                setCursors(prevCursors => prevCursors.filter((c: Cursor) => c.id !== cursor.id));
-              } else {
+                console.log('Removing cursor for user:', cursor.id);
                 setCursors(prevCursors => {
+                  console.log('Previous cursors:', prevCursors);
+                  const newCursors = prevCursors.filter((c: Cursor) => c.id !== cursor.id);
+                  console.log('New cursors after removal:', newCursors);
+                  return newCursors;
+                });
+              } else {
+                console.log('Adding/updating cursor for user:', cursor.id);
+                setCursors(prevCursors => {
+                  console.log('Previous cursors:', prevCursors);
                   const filtered = prevCursors.filter((c: Cursor) => c.id !== cursor.id);
-                  return [...filtered, cursor];
+                  const newCursors = [...filtered, cursor];
+                  console.log('New cursors after update:', newCursors);
+                  return newCursors;
                 });
               }
+            } else {
+              console.log('Ignoring cursor update for self');
             }
             break;
           case 'shape_add':
@@ -172,15 +186,21 @@ const Whiteboard: React.FC = () => {
           case 'current_state':
             console.log('Received current state:', message.payload);
             const { shapes: currentShapes, cursors: currentCursors } = message.payload;
+            console.log('Current cursors from state:', currentCursors);
             if (currentShapes) {
               setShapes(currentShapes);
             }
             if (currentCursors) {
               // Keep our cursor and add other cursors
               setCursors(prevCursors => {
+                console.log('Previous cursors before state update:', prevCursors);
                 const ourCursor = prevCursors.find((c: Cursor) => c.id === userId);
+                console.log('Our cursor:', ourCursor);
                 const otherCursors = currentCursors.filter((c: Cursor) => c.id !== userId);
-                return [...otherCursors, ...(ourCursor ? [ourCursor] : [])];
+                console.log('Other cursors:', otherCursors);
+                const newCursors = [...otherCursors, ...(ourCursor ? [ourCursor] : [])];
+                console.log('New cursors after state update:', newCursors);
+                return newCursors;
               });
             }
             break;
