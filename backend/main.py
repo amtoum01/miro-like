@@ -53,6 +53,7 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.user_cursors: Dict[str, dict] = {}
+        self.shapes: List[dict] = []  # Store current shapes
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -84,22 +85,53 @@ class ConnectionManager:
                 else:
                     # Update cursor position
                     self.user_cursors[user_id] = payload
+            elif message_type == 'shape_add':
+                self.shapes.append(payload)
+            elif message_type == 'shape_update':
+                # Update existing shape
+                for i, shape in enumerate(self.shapes):
+                    if shape.get('id') == payload.get('id'):
+                        self.shapes[i] = payload
+                        break
+            elif message_type == 'shape_delete':
+                # Remove shapes
+                shape_ids = payload.get('ids', [])
+                self.shapes = [s for s in self.shapes if s.get('id') not in shape_ids]
+            elif message_type == 'clear':
+                self.shapes = []
+            elif message_type == 'request_state':
+                # Send current state to the requesting client
+                state_message = json.dumps({
+                    'type': 'current_state',
+                    'payload': {
+                        'shapes': self.shapes,
+                        'cursors': list(self.user_cursors.values()),
+                        'userId': payload.get('userId')
+                    }
+                })
+                if exclude_websocket:
+                    await exclude_websocket.send_text(state_message)
+                return
             
-            # Broadcast the original message
+            # Broadcast the original message to all clients
             await self._broadcast_message(message, exclude_websocket)
             
         except Exception as e:
             logger.error(f"Error broadcasting message: {str(e)}")
 
     async def _broadcast_message(self, message: str, exclude_websocket: WebSocket = None):
+        disconnected = []
         for connection in self.active_connections:
             if connection != exclude_websocket:
                 try:
                     await connection.send_text(message)
                 except Exception as e:
                     logger.error(f"Error sending message to client: {str(e)}")
-                    # Remove failed connection
-                    await self.disconnect(connection)
+                    disconnected.append(connection)
+
+        # Clean up disconnected clients
+        for connection in disconnected:
+            await self.disconnect(connection)
 
 manager = ConnectionManager()
 

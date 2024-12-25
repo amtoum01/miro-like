@@ -58,7 +58,7 @@ type Shape = {
 };
 
 type WebSocketMessage = {
-  type: 'cursor_move' | 'shape_add' | 'shape_update' | 'shape_delete' | 'clear';
+  type: 'cursor_move' | 'shape_add' | 'shape_update' | 'shape_delete' | 'clear' | 'request_state' | 'current_state';
   payload: any;
 };
 
@@ -95,7 +95,7 @@ const Whiteboard: React.FC = () => {
     wsRef.current.onopen = () => {
       console.log('Connected to WebSocket server');
       reconnectAttemptsRef.current = 0;
-      // Send initial cursor position
+      // Send initial cursor position and request current state
       const initialCursor: Cursor = {
         id: userId,
         x: 0,
@@ -104,6 +104,8 @@ const Whiteboard: React.FC = () => {
         username: 'User ' + userId.slice(-4),
       };
       sendToWebSocket({ type: 'cursor_move', payload: initialCursor });
+      // Request current state
+      sendToWebSocket({ type: 'request_state', payload: { userId } });
     };
 
     wsRef.current.onclose = () => {
@@ -134,11 +136,14 @@ const Whiteboard: React.FC = () => {
           case 'cursor_move':
             const cursor = message.payload;
             if (cursor.id !== userId) {
-              console.log('Updating cursor for user:', cursor.username);
-              setCursors(prevCursors => {
-                const filtered = prevCursors.filter(c => c.id !== cursor.id);
-                return [...filtered, cursor];
-              });
+              if (cursor.remove) {
+                setCursors(prevCursors => prevCursors.filter(c => c.id !== cursor.id));
+              } else {
+                setCursors(prevCursors => {
+                  const filtered = prevCursors.filter(c => c.id !== cursor.id);
+                  return [...filtered, cursor];
+                });
+              }
             }
             break;
           case 'shape_add':
@@ -157,16 +162,23 @@ const Whiteboard: React.FC = () => {
             }
             break;
           case 'shape_delete':
-            const deletedShapeIds = message.payload;
-            if (deletedShapeIds.userId !== userId) {
+            const { ids, userId: deletedByUserId } = message.payload;
+            if (deletedByUserId !== userId) {
               setShapes(prevShapes => 
-                prevShapes.filter(shape => !deletedShapeIds.includes(shape.id))
+                prevShapes.filter(shape => !ids.includes(shape.id))
               );
             }
             break;
           case 'clear':
             if (message.payload.userId !== userId) {
               setShapes([]);
+            }
+            break;
+          case 'current_state':
+            if (message.payload.userId !== userId) {
+              const { shapes: currentShapes, cursors: currentCursors } = message.payload;
+              setShapes(currentShapes || []);
+              setCursors(currentCursors || []);
             }
             break;
         }
@@ -314,9 +326,9 @@ const Whiteboard: React.FC = () => {
       const shouldDelete = (() => {
         if (shape.type === 'rectangle' || shape.type === 'image') {
           return x >= shape.x && 
-                 x <= shape.x + shape.width && 
+                 x <= shape.x + (shape.width || 0) && 
                  y >= shape.y && 
-                 y <= shape.y + shape.height;
+                 y <= shape.y + (shape.height || 0);
         } else if (shape.type === 'circle') {
           const dx = x - shape.x;
           const dy = y - shape.y;
