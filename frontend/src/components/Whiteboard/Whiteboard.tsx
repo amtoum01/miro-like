@@ -1,39 +1,7 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Stage, Layer, Rect } from 'react-konva';
+import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
-import config from '../../config';
-
-const Container = styled.div`
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-`;
-
-const Toolbar = styled.div`
-  padding: 1rem;
-  background-color: #f5f5f5;
-  border-bottom: 1px solid #ddd;
-  display: flex;
-  gap: 1rem;
-`;
-
-const Button = styled.button`
-  padding: 0.5rem 1rem;
-  background-color: #0066cc;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-
-  &:hover {
-    background-color: #0052a3;
-  }
-
-  &.active {
-    background-color: #004080;
-  }
-`;
+import { Stage, Layer, Rect } from 'react-konva';
+import { WS_URL } from '../../config';
 
 interface Shape {
   id: string;
@@ -48,20 +16,20 @@ const Whiteboard: React.FC = () => {
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
-  const [currentShape, setCurrentShape] = useState<Shape | null>(null);
-  const stageRef = useRef<any>(null);
+  const [newShape, setNewShape] = useState<Shape | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     // Connect to WebSocket server
-    const ws = new WebSocket(`${config.wsUrl}/ws`);
-    wsRef.current = ws;
+    wsRef.current = new WebSocket(WS_URL);
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'shape_update') {
-        setShapes((prevShapes) => [...prevShapes, data.shape]);
-      }
+    wsRef.current.onopen = () => {
+      console.log('Connected to WebSocket');
+    };
+
+    wsRef.current.onmessage = (event) => {
+      const shape = JSON.parse(event.data);
+      setShapes(prevShapes => [...prevShapes, shape]);
     };
 
     return () => {
@@ -74,9 +42,9 @@ const Whiteboard: React.FC = () => {
   const handleMouseDown = (e: any) => {
     const pos = e.target.getStage().getPointerPosition();
     setIsDrawing(true);
-    setStartPos({ x: pos.x, y: pos.y });
+    setStartPos(pos);
 
-    const newShape: Shape = {
+    const newShapeData: Shape = {
       id: Math.random().toString(),
       type: 'rectangle',
       x: pos.x,
@@ -85,48 +53,40 @@ const Whiteboard: React.FC = () => {
       height: 0,
     };
 
-    setCurrentShape(newShape);
+    setNewShape(newShapeData);
   };
 
   const handleMouseMove = (e: any) => {
-    if (!isDrawing || !currentShape) return;
+    if (!isDrawing || !newShape) return;
 
     const pos = e.target.getStage().getPointerPosition();
-    const newShape = {
-      ...currentShape,
-      width: pos.x - startPos.x,
-      height: pos.y - startPos.y,
-    };
+    const width = pos.x - startPos.x;
+    const height = pos.y - startPos.y;
 
-    setCurrentShape(newShape);
+    setNewShape({
+      ...newShape,
+      width,
+      height,
+    });
   };
 
   const handleMouseUp = () => {
-    if (!isDrawing || !currentShape || !wsRef.current) return;
+    if (!isDrawing || !newShape || !wsRef.current) return;
 
     setIsDrawing(false);
-    setShapes([...shapes, currentShape]);
-    setCurrentShape(null);
-
-    // Send shape to server
-    wsRef.current.send(JSON.stringify({
-      type: 'shape_update',
-      shape: currentShape,
-    }));
+    setShapes(prevShapes => [...prevShapes, newShape]);
+    wsRef.current.send(JSON.stringify(newShape));
+    setNewShape(null);
   };
 
   return (
     <Container>
-      <Toolbar>
-        <Button className="active">Rectangle</Button>
-      </Toolbar>
       <Stage
         width={window.innerWidth}
-        height={window.innerHeight - 64}
+        height={window.innerHeight}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        ref={stageRef}
       >
         <Layer>
           {shapes.map((shape) => (
@@ -140,12 +100,12 @@ const Whiteboard: React.FC = () => {
               strokeWidth={2}
             />
           ))}
-          {currentShape && (
+          {newShape && (
             <Rect
-              x={currentShape.x}
-              y={currentShape.y}
-              width={currentShape.width}
-              height={currentShape.height}
+              x={newShape.x}
+              y={newShape.y}
+              width={newShape.width}
+              height={newShape.height}
               stroke="#000"
               strokeWidth={2}
             />
@@ -155,5 +115,11 @@ const Whiteboard: React.FC = () => {
     </Container>
   );
 };
+
+const Container = styled.div`
+  width: 100vw;
+  height: 100vh;
+  background-color: white;
+`;
 
 export default Whiteboard;
