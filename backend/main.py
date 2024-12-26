@@ -135,34 +135,39 @@ class ConnectionManager:
             return
 
         try:
-            logger.info(f"[SHAPE_SAVE] Attempting to save shape to database. Shape data: {shape}")
-            logger.info(f"[SHAPE_SAVE] Current whiteboard_id: {self.whiteboard_id}")
+            logger.info(f"[SHAPE_SAVE] Starting shape save operation...")
+            logger.info(f"[SHAPE_SAVE] Shape data: {shape}")
+            logger.info(f"[SHAPE_SAVE] Whiteboard ID: {self.whiteboard_id}")
+            logger.info(f"[SHAPE_SAVE] Database session exists: {bool(self._db)}")
             
-            # Check if shape already exists
-            existing_shape = self._db.query(models.WhiteboardShape).filter(
+            # Create new shape
+            new_shape = models.WhiteboardShape(
+                whiteboard_id=self.whiteboard_id,
+                shape_data=shape
+            )
+            
+            logger.info(f"[SHAPE_SAVE] Created new WhiteboardShape object")
+            self._db.add(new_shape)
+            logger.info(f"[SHAPE_SAVE] Added shape to session")
+            
+            try:
+                self._db.commit()
+                logger.info(f"[SHAPE_SAVE] Successfully committed shape to database")
+            except Exception as commit_error:
+                logger.error(f"[SHAPE_SAVE] Commit error: {str(commit_error)}")
+                self._db.rollback()
+                raise
+            
+            # Verify the save
+            saved_shape = self._db.query(models.WhiteboardShape).filter(
                 models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
                 models.WhiteboardShape.shape_data['id'].astext == str(shape['id'])
             ).first()
             
-            if existing_shape:
-                logger.info(f"[SHAPE_SAVE] Updating existing shape {shape['id']}")
-                existing_shape.shape_data = shape
+            if saved_shape:
+                logger.info(f"[SHAPE_SAVE] Verified shape was saved. ID: {saved_shape.id}")
             else:
-                logger.info(f"[SHAPE_SAVE] Creating new shape {shape['id']}")
-                new_shape = models.WhiteboardShape(
-                    whiteboard_id=self.whiteboard_id,
-                    shape_data=shape
-                )
-                self._db.add(new_shape)
-            
-            self._db.commit()
-            logger.info(f"[SHAPE_SAVE] Successfully saved shape to database with ID: {shape.get('id')}")
-            
-            # Verify the shape was saved by counting total shapes
-            total_shapes = self._db.query(models.WhiteboardShape).filter(
-                models.WhiteboardShape.whiteboard_id == self.whiteboard_id
-            ).count()
-            logger.info(f"[SHAPE_SAVE] Total shapes in database for whiteboard {self.whiteboard_id}: {total_shapes}")
+                logger.error("[SHAPE_SAVE] Shape was not found in database after save!")
             
             # Update in-memory cache
             self.shapes = [s for s in self.shapes if s.get('id') != shape.get('id')]
@@ -171,6 +176,7 @@ class ConnectionManager:
                 
         except Exception as e:
             logger.error(f"[SHAPE_SAVE] Error saving shape to database: {str(e)}")
+            logger.error(f"[SHAPE_SAVE] Full error:", exc_info=True)
             self._db.rollback()
 
     async def get_latest_shapes(self):
