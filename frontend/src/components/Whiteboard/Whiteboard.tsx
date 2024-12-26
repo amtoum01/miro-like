@@ -70,7 +70,7 @@ type Shape = {
 };
 
 type WebSocketMessage = {
-  type: 'cursor_move' | 'shape_add' | 'shape_update' | 'shape_delete' | 'clear' | 'request_state' | 'current_state';
+  type: 'cursor_move' | 'shape_add' | 'shape_update' | 'shape_delete' | 'clear' | 'request_state' | 'current_state' | 'status_update';
   payload: any;
 };
 
@@ -94,6 +94,17 @@ const Whiteboard: React.FC = () => {
   const reconnectAttemptsRef = useRef(0);
   const MAX_RECONNECT_ATTEMPTS = 5;
   const navigate = useNavigate();
+  const [connectionStatus, setConnectionStatus] = useState<{
+    totalConnections: number;
+    activeUsers: Array<{ username: string; ip: string }>;
+    totalCursors: number;
+    cursorUsernames: string[];
+  }>({
+    totalConnections: 0,
+    activeUsers: [],
+    totalCursors: 0,
+    cursorUsernames: []
+  });
 
   // Get username from token
   const getUsername = () => {
@@ -246,6 +257,15 @@ const Whiteboard: React.FC = () => {
                 return newCursors;
               });
             }
+            break;
+          case 'status_update':
+            console.log('Received status update:', message.payload);
+            setConnectionStatus({
+              totalConnections: message.payload.total_connections,
+              activeUsers: message.payload.active_users,
+              totalCursors: message.payload.total_cursors,
+              cursorUsernames: message.payload.cursor_usernames
+            });
             break;
         }
       } catch (error) {
@@ -738,11 +758,22 @@ const Whiteboard: React.FC = () => {
           }}></div>
           {wsRef.current?.readyState === WebSocket.OPEN ? 'Connected' : 'Disconnected'}
         </div>
-        <div>Cursors: {cursors.length}</div>
+        <div>Total Connections: {connectionStatus.totalConnections}</div>
+        <div>Total Cursors: {connectionStatus.totalCursors}</div>
         <div>Your username: {username || 'Not logged in'}</div>
         <div>Your Color: <span style={{ color: userColor }}>{userColor}</span></div>
-        <div>WebSocket State: {wsRef.current?.readyState}</div>
-        <div>Active cursors: {cursors.map(c => c.username).join(', ')}</div>
+        <div>Active Users:</div>
+        <div style={{ marginLeft: '10px' }}>
+          {connectionStatus.activeUsers.map((user, index) => (
+            <div key={index}>{user.username}</div>
+          ))}
+        </div>
+        <div>Cursor Users:</div>
+        <div style={{ marginLeft: '10px' }}>
+          {connectionStatus.cursorUsernames.map((username, index) => (
+            <div key={index}>{username}</div>
+          ))}
+        </div>
       </div>
     </WhiteboardContainer>
   );

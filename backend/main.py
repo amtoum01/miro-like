@@ -8,6 +8,7 @@ import os
 import logging
 import jwt
 from jwt.exceptions import PyJWTError
+import asyncio
 
 # Set up logging
 logging.basicConfig(
@@ -77,7 +78,47 @@ class ConnectionManager:
         self.active_connections: List[Dict[str, any]] = []  # Store connection info including user
         self.user_cursors: Dict[str, dict] = {}  # Now keyed by username instead of random ID
         self.shapes: List[dict] = []
+        self.status_task = None
         logger.info("ConnectionManager initialized")
+        
+        # Start the periodic status broadcast
+        asyncio.create_task(self._periodic_status_broadcast())
+
+    async def _periodic_status_broadcast(self):
+        """Broadcast connection status every 30 seconds"""
+        while True:
+            try:
+                active_users = [
+                    {
+                        'username': conn['user'].username if conn['user'] else 'Anonymous',
+                        'ip': conn['socket'].client.host
+                    }
+                    for conn in self.active_connections
+                ]
+                
+                status_message = {
+                    'type': 'status_update',
+                    'payload': {
+                        'total_connections': len(self.active_connections),
+                        'active_users': active_users,
+                        'total_cursors': len(self.user_cursors),
+                        'cursor_usernames': list(self.user_cursors.keys())
+                    }
+                }
+                
+                logger.info(f"=== WebSocket Status Update ===")
+                logger.info(f"Total Connections: {len(self.active_connections)}")
+                logger.info(f"Active Users: {[user['username'] for user in active_users]}")
+                logger.info(f"Total Cursors: {len(self.user_cursors)}")
+                logger.info(f"Cursor Usernames: {list(self.user_cursors.keys())}")
+                logger.info("============================")
+                
+                # Broadcast status to all clients
+                await self._broadcast_message(json.dumps(status_message))
+            except Exception as e:
+                logger.error(f"Error in periodic status broadcast: {str(e)}")
+            
+            await asyncio.sleep(30)  # Wait for 30 seconds
 
     async def connect(self, websocket: WebSocket, user: Optional[models.User] = None):
         await websocket.accept()
