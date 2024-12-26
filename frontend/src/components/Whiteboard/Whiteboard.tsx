@@ -95,11 +95,13 @@ const Whiteboard: React.FC = () => {
   const MAX_RECONNECT_ATTEMPTS = 5;
   const navigate = useNavigate();
   const [connectionStatus, setConnectionStatus] = useState<{
+    whiteboard_id: string;
     totalConnections: number;
     activeUsers: Array<{ username: string; ip: string }>;
     totalCursors: number;
     cursorUsernames: string[];
   }>({
+    whiteboard_id: '',
     totalConnections: 0,
     activeUsers: [],
     totalCursors: 0,
@@ -239,13 +241,12 @@ const Whiteboard: React.FC = () => {
             break;
           case 'current_state':
             console.log('Received current state:', message.payload);
-            const { shapes: currentShapes, cursors: currentCursors } = message.payload;
+            const { shapes: currentShapes, cursors: currentCursors, whiteboard_id } = message.payload;
             console.log('Current cursors from state:', currentCursors);
             if (currentShapes) {
               setShapes(currentShapes);
             }
             if (currentCursors) {
-              // Keep our cursor and add other cursors
               setCursors(prevCursors => {
                 console.log('Previous cursors before state update:', prevCursors);
                 const ourCursor = prevCursors.find((c: Cursor) => c.id === username);
@@ -257,10 +258,14 @@ const Whiteboard: React.FC = () => {
                 return newCursors;
               });
             }
+            if (whiteboard_id) {
+              setConnectionStatus(prev => ({ ...prev, whiteboard_id }));
+            }
             break;
           case 'status_update':
             console.log('Received status update:', message.payload);
             setConnectionStatus({
+              whiteboard_id: message.payload.whiteboard_id,
               totalConnections: message.payload.total_connections,
               activeUsers: message.payload.active_users,
               totalCursors: message.payload.total_cursors,
@@ -758,6 +763,7 @@ const Whiteboard: React.FC = () => {
           }}></div>
           {wsRef.current?.readyState === WebSocket.OPEN ? 'Connected' : 'Disconnected'}
         </div>
+        <div>Whiteboard ID: {connectionStatus.whiteboard_id}</div>
         <div>Total Connections: {connectionStatus.totalConnections}</div>
         <div>Total Cursors: {connectionStatus.totalCursors}</div>
         <div>Your username: {username || 'Not logged in'}</div>

@@ -79,7 +79,8 @@ class ConnectionManager:
         self.user_cursors: Dict[str, dict] = {}
         self.shapes: List[dict] = []
         self.status_task = None
-        logger.info("ConnectionManager initialized")
+        self.whiteboard_id = os.urandom(8).hex()  # Generate a unique ID for this whiteboard instance
+        logger.info(f"ConnectionManager initialized with whiteboard ID: {self.whiteboard_id}")
 
     def start_periodic_broadcast(self):
         """Start the periodic status broadcast"""
@@ -91,7 +92,7 @@ class ConnectionManager:
                 logger.error("Could not start periodic broadcast - no event loop running")
 
     async def _periodic_status_broadcast(self):
-        """Broadcast connection status every 30 seconds"""
+        """Broadcast connection status every 5 seconds"""
         while True:
             try:
                 active_users = [
@@ -105,6 +106,7 @@ class ConnectionManager:
                 status_message = {
                     'type': 'status_update',
                     'payload': {
+                        'whiteboard_id': self.whiteboard_id,
                         'total_connections': len(self.active_connections),
                         'active_users': active_users,
                         'total_cursors': len(self.user_cursors),
@@ -113,6 +115,7 @@ class ConnectionManager:
                 }
                 
                 logger.info(f"=== WebSocket Status Update ===")
+                logger.info(f"Whiteboard ID: {self.whiteboard_id}")
                 logger.info(f"Total Connections: {len(self.active_connections)}")
                 logger.info(f"Active Users: {[user['username'] for user in active_users]}")
                 logger.info(f"Total Cursors: {len(self.user_cursors)}")
@@ -124,7 +127,7 @@ class ConnectionManager:
             except Exception as e:
                 logger.error(f"Error in periodic status broadcast: {str(e)}")
             
-            await asyncio.sleep(30)  # Wait for 30 seconds
+            await asyncio.sleep(2)  # Wait for 5 seconds
 
     async def connect(self, websocket: WebSocket, user: Optional[models.User] = None):
         await websocket.accept()
@@ -138,7 +141,7 @@ class ConnectionManager:
             "user": user
         }
         self.active_connections.append(connection_info)
-        logger.info(f"New client connected. User: {user.username if user else 'Anonymous'}")
+        logger.info(f"New client connected to whiteboard {self.whiteboard_id}. User: {user.username if user else 'Anonymous'}")
         logger.info(f"Total connections: {len(self.active_connections)}")
         logger.info(f"Active users: {[conn['user'].username if conn['user'] else 'Anonymous' for conn in self.active_connections]}")
         
@@ -146,6 +149,7 @@ class ConnectionManager:
         state_message = json.dumps({
             'type': 'current_state',
             'payload': {
+                'whiteboard_id': self.whiteboard_id,
                 'shapes': self.shapes,
                 'cursors': [
                     {k: v for k, v in cursor.items() if k not in ['websocket', 'user']}
@@ -153,7 +157,7 @@ class ConnectionManager:
                 ]
             }
         })
-        logger.info(f"Sending initial state to new client. Current cursors: {[cursor.get('username') for cursor in self.user_cursors.values()]}")
+        logger.info(f"Sending initial state to new client on whiteboard {self.whiteboard_id}. Current cursors: {[cursor.get('username') for cursor in self.user_cursors.values()]}")
         await websocket.send_text(state_message)
 
     async def _cleanup_existing_connection(self, username: str):
