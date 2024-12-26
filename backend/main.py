@@ -130,19 +130,40 @@ class ConnectionManager:
             logger.info(f"Attempting to save shape to database. Shape data: {shape}")
             logger.info(f"Current whiteboard_id: {self.whiteboard_id}")
             
-            # Create new shape record
-            new_shape = models.WhiteboardShape(
-                whiteboard_id=self.whiteboard_id,
-                shape_data=shape
-            )
-            self._db.add(new_shape)
+            # Check if shape already exists
+            existing_shape = self._db.query(models.WhiteboardShape).filter(
+                models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
+                models.WhiteboardShape.shape_data['id'].astext == str(shape['id'])
+            ).first()
+            
+            if existing_shape:
+                logger.info(f"Updating existing shape {shape['id']}")
+                existing_shape.shape_data = shape
+            else:
+                logger.info(f"Creating new shape {shape['id']}")
+                new_shape = models.WhiteboardShape(
+                    whiteboard_id=self.whiteboard_id,
+                    shape_data=shape
+                )
+                self._db.add(new_shape)
+            
             self._db.commit()
             logger.info(f"Successfully saved shape to database with ID: {shape.get('id')}")
             
-            # Add to in-memory cache
-            self.shapes = [s for s in self.shapes if s.get('id') != shape.get('id')]
-            self.shapes.append(shape)
-            logger.info(f"Updated in-memory shapes. Total shapes: {len(self.shapes)}")
+            # Verify the shape was saved
+            saved_shape = self._db.query(models.WhiteboardShape).filter(
+                models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
+                models.WhiteboardShape.shape_data['id'].astext == str(shape['id'])
+            ).first()
+            
+            if saved_shape:
+                logger.info(f"Verified shape {shape['id']} exists in database")
+                # Update in-memory cache
+                self.shapes = [s for s in self.shapes if s.get('id') != shape.get('id')]
+                self.shapes.append(shape)
+                logger.info(f"Updated in-memory shapes. Total shapes: {len(self.shapes)}")
+            else:
+                logger.error(f"Failed to verify shape {shape['id']} in database after save")
                 
         except Exception as e:
             logger.error(f"Error saving shape to database: {str(e)}")
@@ -248,6 +269,26 @@ class ConnectionManager:
             logger.info(f"Total connections: {len(self.active_connections)}")
             logger.info(f"Active users: {[conn['user'].username if conn['user'] else 'Anonymous' for conn in self.active_connections]}")
             
+            # Load latest shapes from database
+            if self._db and self.whiteboard_id:
+                logger.info(f"Loading shapes from database for whiteboard: {self.whiteboard_id}")
+                try:
+                    db_shapes = self._db.query(models.WhiteboardShape).filter(
+                        models.WhiteboardShape.whiteboard_id == self.whiteboard_id
+                    ).all()
+                    
+                    if db_shapes:
+                        self.shapes = [shape.shape_data for shape in db_shapes]
+                        logger.info(f"Successfully loaded {len(self.shapes)} shapes from database")
+                        for shape in self.shapes:
+                            logger.info(f"Loaded shape: {shape}")
+                    else:
+                        logger.warning(f"No shapes found in database for whiteboard: {self.whiteboard_id}")
+                        self.shapes = []
+                except Exception as e:
+                    logger.error(f"Error loading shapes from database: {str(e)}")
+                    self.shapes = []
+            
             # Send current state to the new client
             state_message = json.dumps({
                 'type': 'current_state',
@@ -261,6 +302,7 @@ class ConnectionManager:
                 }
             })
             logger.info(f"Sending initial state to new client on whiteboard {self.whiteboard_id}")
+            logger.info(f"Sending {len(self.shapes)} shapes in initial state")
             await websocket.send_text(state_message)
         except Exception as e:
             logger.error(f"Error in connect: {str(e)}")
@@ -411,14 +453,22 @@ class ConnectionManager:
                 await self._broadcast_message(message)
 
             elif message_type == 'shape_update':
+                # Find and update the shape in memory
+                shape_found = False
                 for i, shape in enumerate(self.shapes):
                     if shape.get('id') == payload.get('id'):
                         self.shapes[i] = payload
-                        # Save to database regardless of final flag
-                        logger.info(f"Saving shape to database: {payload}")
-                        await self.save_shape(payload)
-                        await self._broadcast_message(message)
+                        shape_found = True
                         break
+                
+                # If shape wasn't found in memory, add it
+                if not shape_found:
+                    self.shapes.append(payload)
+                
+                # Always save to database
+                logger.info(f"Saving shape to database: {payload}")
+                await self.save_shape(payload)
+                await self._broadcast_message(message)
 
             elif message_type == 'shape_delete':
                 shape_ids = payload.get('ids', [])
@@ -455,15 +505,25 @@ class ConnectionManager:
                 # Load shapes from database
                 if self._db and self.whiteboard_id:
                     logger.info(f"Loading shapes from database for whiteboard: {self.whiteboard_id}")
-                    db_shapes = self._db.query(models.WhiteboardShape).filter(
-                        models.WhiteboardShape.whiteboard_id == self.whiteboard_id
-                    ).all()
-                    self.shapes = [shape.shape_data for shape in db_shapes]
-                    logger.info(f"Loaded {len(self.shapes)} shapes from database")
-                    for shape in self.shapes:
-                        logger.info(f"Loaded shape: {shape}")
+                    try:
+                        db_shapes = self._db.query(models.WhiteboardShape).filter(
+                            models.WhiteboardShape.whiteboard_id == self.whiteboard_id
+                        ).all()
+                        
+                        if db_shapes:
+                            self.shapes = [shape.shape_data for shape in db_shapes]
+                            logger.info(f"Successfully loaded {len(self.shapes)} shapes from database")
+                            for shape in self.shapes:
+                                logger.info(f"Loaded shape: {shape}")
+                        else:
+                            logger.warning(f"No shapes found in database for whiteboard: {self.whiteboard_id}")
+                            self.shapes = []
+                    except Exception as e:
+                        logger.error(f"Error loading shapes from database: {str(e)}")
+                        self.shapes = []
                 else:
                     logger.warning("No database session or whiteboard ID available for loading shapes")
+                    self.shapes = []
                 
                 state_message = json.dumps({
                     'type': 'current_state',
