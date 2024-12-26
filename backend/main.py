@@ -9,6 +9,7 @@ import logging
 import jwt
 from jwt.exceptions import PyJWTError
 import asyncio
+from sqlalchemy import func, and_
 
 # Set up logging
 logging.basicConfig(
@@ -126,16 +127,60 @@ class ConnectionManager:
             return
 
         try:
+            # Get the latest version number for this shape
+            latest_shape = self._db.query(models.WhiteboardShape).filter(
+                models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
+                models.WhiteboardShape.shape_data['id'].astext == str(shape['id'])
+            ).order_by(models.WhiteboardShape.version.desc()).first()
+
+            # Create new shape version
+            new_version = (latest_shape.version + 1) if latest_shape else 1
+            
+            # Always create a new record for each update
             new_shape = models.WhiteboardShape(
                 whiteboard_id=self.whiteboard_id,
-                shape_data=shape
+                shape_data=shape,
+                version=new_version
             )
             self._db.add(new_shape)
             self._db.commit()
-            logger.info(f"Saved shape to database for whiteboard {self.whiteboard_id}")
+            logger.info(f"Saved shape version {new_version} to database")
+
         except Exception as e:
             logger.error(f"Error saving shape to database: {str(e)}")
             self._db.rollback()
+
+    async def get_latest_shapes(self):
+        """Get the latest version of each shape from the database"""
+        if not self._db or not self.whiteboard_id:
+            logger.error("Cannot get shapes: no database session or whiteboard ID")
+            return []
+
+        try:
+            # Subquery to get the latest version of each shape
+            latest_versions = self._db.query(
+                models.WhiteboardShape.shape_data['id'].astext.label('shape_id'),
+                func.max(models.WhiteboardShape.version).label('max_version')
+            ).filter(
+                models.WhiteboardShape.whiteboard_id == self.whiteboard_id
+            ).group_by(
+                models.WhiteboardShape.shape_data['id'].astext
+            ).subquery()
+
+            # Get the actual shape data for the latest versions
+            latest_shapes = self._db.query(models.WhiteboardShape).join(
+                latest_versions,
+                and_(
+                    models.WhiteboardShape.shape_data['id'].astext == latest_versions.c.shape_id,
+                    models.WhiteboardShape.version == latest_versions.c.max_version
+                )
+            ).all()
+
+            return [shape.shape_data for shape in latest_shapes]
+
+        except Exception as e:
+            logger.error(f"Error getting latest shapes: {str(e)}")
+            return []
 
     async def delete_shape(self, shape_id: str):
         """Delete a shape from the database"""
@@ -342,14 +387,14 @@ class ConnectionManager:
 
             elif message_type == 'shape_add':
                 self.shapes.append(payload)
-                await self.save_shape(payload)  # Save to database
+                await self.save_shape(payload)  # Save initial version
                 await self._broadcast_message(message)
 
             elif message_type == 'shape_update':
                 for i, shape in enumerate(self.shapes):
                     if shape.get('id') == payload.get('id'):
                         self.shapes[i] = payload
-                        await self.update_shape(payload)  # Update in database
+                        await self.save_shape(payload)  # Save new version
                         await self._broadcast_message(message)
                         break
 
@@ -372,12 +417,9 @@ class ConnectionManager:
 
             elif message_type == 'request_state':
                 logger.info("Received state request")
-                # Load latest shapes from database to ensure consistency
-                if self._db and self.whiteboard_id:
-                    db_shapes = self._db.query(models.WhiteboardShape).filter(
-                        models.WhiteboardShape.whiteboard_id == self.whiteboard_id
-                    ).all()
-                    self.shapes = [shape.shape_data for shape in db_shapes]
+                # Load latest shape versions from database
+                self.shapes = await self.get_latest_shapes()
+                logger.info(f"Loaded {len(self.shapes)} latest shapes from database")
                 
                 state_message = json.dumps({
                     'type': 'current_state',
@@ -390,7 +432,6 @@ class ConnectionManager:
                         ]
                     }
                 })
-                logger.info(f"Sending current state with {len(self.shapes)} shapes")
                 if exclude_websocket:
                     await exclude_websocket.send_text(state_message)
                 return

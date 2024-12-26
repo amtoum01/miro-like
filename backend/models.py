@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, J
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
+from datetime import datetime
 
 class User(Base):
     __tablename__ = "users"
@@ -41,8 +42,12 @@ class WhiteboardShape(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     whiteboard_id = Column(String, ForeignKey("whiteboards.board_id"))
-    shape_data = Column(JSON)  # Store the entire shape object
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    shape_data = Column(JSON)
+    version = Column(Integer, default=1)  # Track shape updates
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    whiteboard = relationship("Whiteboard", back_populates="shapes")
 
 class Whiteboard(Base):
     __tablename__ = "whiteboards"
