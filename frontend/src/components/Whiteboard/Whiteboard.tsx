@@ -89,7 +89,6 @@ const Whiteboard: React.FC = () => {
   const [userColor] = useState<string>(getRandomColor());
   const stageRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const lastCursorUpdate = useRef<number>(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const MAX_RECONNECT_ATTEMPTS = 5;
