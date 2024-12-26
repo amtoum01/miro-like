@@ -35,20 +35,14 @@ const Canvas = styled.div`
   background-color: #fff;
 `;
 
-const LogoutButton = styled.button`
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  padding: 8px 16px;
+const LogoutButton = styled(ToolButton)`
+  margin-top: auto;
   background-color: #ff4444;
   color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
   
   &:hover {
-    background-color: #ff0000;
+    background-color: #ff0000 !important;
+    color: white;
   }
 `;
 

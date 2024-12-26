@@ -79,6 +79,31 @@ class ConnectionManager:
         self.shapes: List[dict] = []
         logger.info("ConnectionManager initialized")
 
+    async def connect(self, websocket: WebSocket, user: Optional[models.User] = None):
+        await websocket.accept()
+        connection_info = {
+            "socket": websocket,
+            "user": user
+        }
+        self.active_connections.append(connection_info)
+        logger.info(f"New client connected. User: {user.username if user else 'Anonymous'}")
+        logger.info(f"Total connections: {len(self.active_connections)}")
+        logger.info(f"Active users: {[conn['user'].username if conn['user'] else 'Anonymous' for conn in self.active_connections]}")
+        
+        # Send current state to the new client
+        state_message = json.dumps({
+            'type': 'current_state',
+            'payload': {
+                'shapes': self.shapes,
+                'cursors': [
+                    {k: v for k, v in cursor.items() if k not in ['websocket', 'user']}
+                    for cursor in self.user_cursors.values()
+                ]
+            }
+        })
+        logger.info(f"Sending initial state to new client. Current cursors: {[cursor.get('username') for cursor in self.user_cursors.values()]}")
+        await websocket.send_text(state_message)
+
     async def cleanup_user(self, username: str):
         """Clean up all resources associated with a user"""
         logger.info(f"Cleaning up resources for user: {username}")
