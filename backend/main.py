@@ -79,68 +79,79 @@ class ConnectionManager:
         self.user_cursors: Dict[str, dict] = {}
         self.shapes: List[dict] = []
         self.status_task = None
-        self.whiteboard_id = None  # Will be set when getting/creating the whiteboard
+        self.whiteboard_id = None
+        self._whiteboard_lock = asyncio.Lock()  # Add lock for synchronization
         logger.info("ConnectionManager initialized")
 
     async def get_or_create_whiteboard(self, db: Session) -> str:
         """Get the active whiteboard ID or create a new one if none exists"""
-        if self.whiteboard_id:
-            return self.whiteboard_id
+        async with self._whiteboard_lock:  # Use lock to prevent race conditions
+            if self.whiteboard_id:
+                return self.whiteboard_id
 
-        # Try to get existing active whiteboard
-        active_whiteboard = db.query(models.Whiteboard).filter(
-            models.Whiteboard.is_active == 1
-        ).first()
+            try:
+                # Try to get existing active whiteboard
+                active_whiteboard = db.query(models.Whiteboard).filter(
+                    models.Whiteboard.is_active == 1
+                ).with_for_update().first()  # Add database-level locking
 
-        if active_whiteboard:
-            self.whiteboard_id = active_whiteboard.board_id
-            logger.info(f"Using existing whiteboard: {self.whiteboard_id}")
-        else:
-            # Create new whiteboard
-            new_board_id = os.urandom(8).hex()
-            new_whiteboard = models.Whiteboard(board_id=new_board_id)
-            db.add(new_whiteboard)
-            db.commit()
-            db.refresh(new_whiteboard)
-            self.whiteboard_id = new_board_id
-            logger.info(f"Created new whiteboard: {self.whiteboard_id}")
+                if active_whiteboard:
+                    self.whiteboard_id = active_whiteboard.board_id
+                    logger.info(f"Using existing whiteboard: {self.whiteboard_id}")
+                else:
+                    # Create new whiteboard
+                    new_board_id = os.urandom(8).hex()
+                    new_whiteboard = models.Whiteboard(board_id=new_board_id)
+                    db.add(new_whiteboard)
+                    db.commit()
+                    db.refresh(new_whiteboard)
+                    self.whiteboard_id = new_board_id
+                    logger.info(f"Created new whiteboard: {self.whiteboard_id}")
 
-        return self.whiteboard_id
+                return self.whiteboard_id
+            except Exception as e:
+                logger.error(f"Error in get_or_create_whiteboard: {str(e)}")
+                db.rollback()
+                raise
 
     async def connect(self, websocket: WebSocket, user: Optional[models.User] = None, db: Session = None):
-        # Ensure we have a whiteboard ID
-        if not self.whiteboard_id and db:
-            await self.get_or_create_whiteboard(db)
+        try:
+            # Ensure we have a whiteboard ID
+            if not self.whiteboard_id and db:
+                await self.get_or_create_whiteboard(db)
+                
+            await websocket.accept()
             
-        await websocket.accept()
-        
-        # If user already has a connection, clean it up first
-        if user:
-            await self._cleanup_existing_connection(user.username)
-        
-        connection_info = {
-            "socket": websocket,
-            "user": user
-        }
-        self.active_connections.append(connection_info)
-        logger.info(f"New client connected to whiteboard {self.whiteboard_id}. User: {user.username if user else 'Anonymous'}")
-        logger.info(f"Total connections: {len(self.active_connections)}")
-        logger.info(f"Active users: {[conn['user'].username if conn['user'] else 'Anonymous' for conn in self.active_connections]}")
-        
-        # Send current state to the new client
-        state_message = json.dumps({
-            'type': 'current_state',
-            'payload': {
-                'whiteboard_id': self.whiteboard_id,
-                'shapes': self.shapes,
-                'cursors': [
-                    {k: v for k, v in cursor.items() if k not in ['websocket', 'user']}
-                    for cursor in self.user_cursors.values()
-                ]
+            # If user already has a connection, clean it up first
+            if user:
+                await self._cleanup_existing_connection(user.username)
+            
+            connection_info = {
+                "socket": websocket,
+                "user": user
             }
-        })
-        logger.info(f"Sending initial state to new client on whiteboard {self.whiteboard_id}")
-        await websocket.send_text(state_message)
+            self.active_connections.append(connection_info)
+            logger.info(f"New client connected to whiteboard {self.whiteboard_id}. User: {user.username if user else 'Anonymous'}")
+            logger.info(f"Total connections: {len(self.active_connections)}")
+            logger.info(f"Active users: {[conn['user'].username if conn['user'] else 'Anonymous' for conn in self.active_connections]}")
+            
+            # Send current state to the new client
+            state_message = json.dumps({
+                'type': 'current_state',
+                'payload': {
+                    'whiteboard_id': self.whiteboard_id,
+                    'shapes': self.shapes,
+                    'cursors': [
+                        {k: v for k, v in cursor.items() if k not in ['websocket', 'user']}
+                        for cursor in self.user_cursors.values()
+                    ]
+                }
+            })
+            logger.info(f"Sending initial state to new client on whiteboard {self.whiteboard_id}")
+            await websocket.send_text(state_message)
+        except Exception as e:
+            logger.error(f"Error in connect: {str(e)}")
+            raise
 
     def start_periodic_broadcast(self):
         """Start the periodic status broadcast"""
