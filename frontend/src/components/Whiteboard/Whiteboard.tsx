@@ -305,6 +305,21 @@ const Whiteboard: React.FC = () => {
     }
   };
 
+  const handleMouseUp = () => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+
+    // Send final update for the last shape
+    const lastShape = shapes[shapes.length - 1];
+    if (lastShape) {
+      console.log('Sending final shape update:', lastShape);
+      sendToWebSocket({
+        type: 'shape_update',
+        payload: { ...lastShape, final: true }
+      });
+    }
+  };
+
   const handleMouseDown = (e: any) => {
     const stage = e.target.getStage();
     if (!stage) return;
@@ -321,30 +336,31 @@ const Whiteboard: React.FC = () => {
       return;
     }
 
-    const newShape: Shape = {
+    // Create a new shape
+    const newShape = {
       id: Date.now().toString(),
       type: selectedTool,
       x: pos.x || 0,
       y: pos.y || 0,
       width: 0,
       height: 0,
-      userId: username || 'anonymous',
+      radius: 0,
+      points: [],
+      color: '#000000',
+      fill: '#000000',
+      stroke: '#000000',
+      strokeWidth: 2,
+      innerRadius: 20,
+      outerRadius: 40,
+      numPoints: 5,
+      userId: username || 'anonymous'
     };
 
-    if (selectedTool === 'circle') {
-      newShape.radius = 0;
-    } else if (selectedTool === 'star') {
-      newShape.numPoints = 5;
-      newShape.innerRadius = 0;
-      newShape.outerRadius = 0;
-    } else if (selectedTool === 'image') {
-      newShape.width = 100;
-      newShape.height = 100;
-      newShape.imageUrl = 'placeholder';
-    }
-
     setShapes([...shapes, newShape]);
-    sendToWebSocket({ type: 'shape_add', payload: newShape });
+    sendToWebSocket({
+      type: 'shape_update',
+      payload: { ...newShape, final: false }
+    });
   };
 
   const handleMouseMove = (e: any) => {
@@ -369,34 +385,7 @@ const Whiteboard: React.FC = () => {
       color: userColor,
       username: username,
     };
-    
-    // Update local cursor state immediately
-    setCursors(prevCursors => {
-      console.log('Updating local cursor state:');
-      console.log('- Previous cursors:', prevCursors);
-      console.log('- Current user:', username);
-      console.log('- Cursor data:', cursorData);
-      
-      const filtered = prevCursors.filter((c: Cursor) => c.id !== cursorData.id);
-      console.log('- After filtering own cursor:', filtered);
-      
-      const newCursors = [...filtered, cursorData];
-      console.log('- New cursor state:', newCursors);
-      return newCursors;
-    });
-    
-    // Send cursor updates more frequently
-    const now = Date.now();
-    if (!lastCursorUpdate.current || now - lastCursorUpdate.current > 30) {
-      console.log('Sending cursor update to server:', cursorData);
-      sendToWebSocket({ type: 'cursor_move', payload: cursorData });
-      lastCursorUpdate.current = now;
-    }
-
-    if (selectedTool === 'eraser' && isDrawing) {
-      eraseShapesAtPosition(pos.x || 0, pos.y || 0);
-      return;
-    }
+    sendToWebSocket({ type: 'cursor_move', payload: cursorData });
 
     if (!isDrawing) return;
 
@@ -420,9 +409,10 @@ const Whiteboard: React.FC = () => {
     } else if (lastShape.type === 'circle') {
       const dx = (pos.x || 0) - (startPos.x || 0);
       const dy = (pos.y || 0) - (startPos.y || 0);
+      const radius = Math.sqrt(dx * dx + dy * dy);
       updatedShape = {
         ...lastShape,
-        radius: Math.sqrt(dx * dx + dy * dy),
+        radius,
       };
     } else if (lastShape.type === 'star') {
       const dx = (pos.x || 0) - (startPos.x || 0);
@@ -430,13 +420,23 @@ const Whiteboard: React.FC = () => {
       const radius = Math.sqrt(dx * dx + dy * dy);
       updatedShape = {
         ...lastShape,
-        innerRadius: radius * 0.4,
         outerRadius: radius,
+        innerRadius: radius / 2,
       };
     }
 
-    setShapes(prevShapes => [...prevShapes.slice(0, -1), updatedShape]);
-    sendToWebSocket({ type: 'shape_update', payload: updatedShape });
+    // Update shapes array
+    setShapes(prevShapes => {
+      const newShapes = [...prevShapes];
+      newShapes[newShapes.length - 1] = updatedShape;
+      return newShapes;
+    });
+
+    // Send shape update
+    sendToWebSocket({
+      type: 'shape_update',
+      payload: { ...updatedShape, final: false }
+    });
   };
 
   const eraseShapesAtPosition = (x: number, y: number) => {
@@ -571,17 +571,7 @@ const Whiteboard: React.FC = () => {
           height={Math.max(0, window.innerHeight)}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
-          onMouseUp={() => {
-            setIsDrawing(false);
-            const lastShape = shapes[shapes.length - 1];
-            if (lastShape) {
-              // Send final shape update when drawing is complete
-              sendToWebSocket({ 
-                type: 'shape_update', 
-                payload: { ...lastShape, final: true }
-              });
-            }
-          }}
+          onMouseUp={handleMouseUp}
           onMouseLeave={(e: any) => {
             if (isDrawing) {
               setIsDrawing(false);

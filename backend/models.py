@@ -43,7 +43,6 @@ class WhiteboardShape(Base):
     id = Column(Integer, primary_key=True, index=True)
     whiteboard_id = Column(String, ForeignKey("whiteboards.board_id"))
     shape_data = Column(JSON)
-    version = Column(Integer, default=1)  # Track shape updates
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -56,4 +55,4 @@ class Whiteboard(Base):
     board_id = Column(String, unique=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Integer, default=1)
-    shapes = relationship("WhiteboardShape", cascade="all, delete-orphan")
+    shapes = relationship("WhiteboardShape", back_populates="whiteboard", cascade="all, delete-orphan")

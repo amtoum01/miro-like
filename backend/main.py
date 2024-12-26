@@ -127,13 +127,28 @@ class ConnectionManager:
             return
 
         try:
+            logger.info(f"Attempting to save shape to database. Shape data: {shape}")
+            logger.info(f"Current whiteboard_id: {self.whiteboard_id}")
+            
             new_shape = models.WhiteboardShape(
                 whiteboard_id=self.whiteboard_id,
                 shape_data=shape
             )
             self._db.add(new_shape)
             self._db.commit()
-            logger.info(f"Saved completed shape to database")
+            logger.info(f"Successfully saved shape to database with ID: {shape.get('id')}")
+            
+            # Verify the shape was saved
+            saved_shape = self._db.query(models.WhiteboardShape).filter(
+                models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
+                models.WhiteboardShape.shape_data['id'].astext == str(shape['id'])
+            ).first()
+            
+            if saved_shape:
+                logger.info(f"Verified shape {shape['id']} exists in database")
+            else:
+                logger.error(f"Failed to verify shape {shape['id']} in database after save")
+                
         except Exception as e:
             logger.error(f"Error saving shape to database: {str(e)}")
             self._db.rollback()
@@ -178,12 +193,20 @@ class ConnectionManager:
 
         try:
             # Delete the shape from database
+            logger.info(f"Attempting to delete shape {shape_id} from whiteboard {self.whiteboard_id}")
+            
+            # Delete all versions of the shape
             result = self._db.query(models.WhiteboardShape).filter(
                 models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
                 models.WhiteboardShape.shape_data['id'].astext == str(shape_id)
             ).delete(synchronize_session=False)
+            
             self._db.commit()
-            logger.info(f"Deleted shape {shape_id} from database. Rows affected: {result}")
+            logger.info(f"Successfully deleted shape {shape_id} from database. Rows affected: {result}")
+            
+            # Also remove from in-memory cache
+            self.shapes = [s for s in self.shapes if s.get('id') != shape_id]
+                
         except Exception as e:
             logger.error(f"Error deleting shape from database: {str(e)}")
             self._db.rollback()
@@ -396,7 +419,10 @@ class ConnectionManager:
                         self.shapes[i] = payload
                         # Only save to database if it's a final update
                         if payload.get('final'):
+                            logger.info(f"Received final shape update. Saving to database: {payload}")
                             await self.save_shape(payload)
+                        else:
+                            logger.info(f"Received non-final shape update: {payload}")
                         await self._broadcast_message(message)
                         break
 
@@ -404,18 +430,19 @@ class ConnectionManager:
                 shape_ids = payload.get('ids', [])
                 logger.info(f"Received shape_delete request for IDs: {shape_ids}")
                 
+                if not shape_ids:
+                    logger.warning("No shape IDs provided for deletion")
+                    return
+                
                 # Delete from database first
                 for shape_id in shape_ids:
+                    logger.info(f"Processing deletion for shape {shape_id}")
                     await self.delete_shape(shape_id)
-                    logger.info(f"Deleted shape {shape_id} from database")
-                
-                # Then update in-memory shapes
-                self.shapes = [s for s in self.shapes if s.get('id') not in shape_ids]
-                logger.info(f"Updated in-memory shapes. Remaining shapes: {len(self.shapes)}")
                 
                 # Broadcast the deletion to all clients
                 await self._broadcast_message(message)
                 logger.info("Broadcasted shape deletion to all clients")
+                return
 
             elif message_type == 'clear':
                 # Clear all shapes from both memory and database
@@ -427,11 +454,16 @@ class ConnectionManager:
                 logger.info("Received state request")
                 # Load shapes from database
                 if self._db and self.whiteboard_id:
+                    logger.info(f"Loading shapes from database for whiteboard: {self.whiteboard_id}")
                     db_shapes = self._db.query(models.WhiteboardShape).filter(
                         models.WhiteboardShape.whiteboard_id == self.whiteboard_id
                     ).all()
                     self.shapes = [shape.shape_data for shape in db_shapes]
                     logger.info(f"Loaded {len(self.shapes)} shapes from database")
+                    for shape in self.shapes:
+                        logger.info(f"Loaded shape: {shape}")
+                else:
+                    logger.warning("No database session or whiteboard ID available for loading shapes")
                 
                 state_message = json.dumps({
                     'type': 'current_state',
