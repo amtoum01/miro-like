@@ -10,6 +10,10 @@ import jwt
 from jwt.exceptions import PyJWTError
 import asyncio
 from sqlalchemy import func, and_
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv(override=True)
 
 # Set up logging
 logging.basicConfig(
@@ -17,6 +21,10 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Log database configuration
+database_url = os.getenv("DATABASE_URL", "Not configured")
+logger.info(f"Database URL from environment: {database_url}")
 
 import models
 import auth
