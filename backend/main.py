@@ -121,32 +121,19 @@ class ConnectionManager:
                 raise
 
     async def save_shape(self, shape: dict):
-        """Save a shape to the database"""
+        """Save a completed shape to the database"""
         if not self._db or not self.whiteboard_id:
             logger.error("Cannot save shape: no database session or whiteboard ID")
             return
 
         try:
-            # Check if shape already exists
-            existing_shape = self._db.query(models.WhiteboardShape).filter(
-                models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
-                models.WhiteboardShape.shape_data['id'].astext == str(shape['id'])
-            ).first()
-
-            if existing_shape:
-                # Update existing shape
-                existing_shape.shape_data = shape
-            else:
-                # Create new shape
-                new_shape = models.WhiteboardShape(
-                    whiteboard_id=self.whiteboard_id,
-                    shape_data=shape
-                )
-                self._db.add(new_shape)
-            
+            new_shape = models.WhiteboardShape(
+                whiteboard_id=self.whiteboard_id,
+                shape_data=shape
+            )
+            self._db.add(new_shape)
             self._db.commit()
-            logger.info(f"Saved/updated shape {shape['id']} in database")
-
+            logger.info(f"Saved completed shape to database")
         except Exception as e:
             logger.error(f"Error saving shape to database: {str(e)}")
             self._db.rollback()
@@ -345,7 +332,6 @@ class ConnectionManager:
             data = json.loads(message)
             message_type = data.get('type')
             payload = data.get('payload', {})
-            logger.info(f"Broadcasting message type: {message_type} from user: {current_user.username if current_user else 'Anonymous'}")
 
             if message_type == 'cursor_move':
                 if not current_user:  # Only handle cursor moves from authenticated users
@@ -354,23 +340,17 @@ class ConnectionManager:
                     
                 username = current_user.username
                 if payload.get('remove'):
-                    # Handle explicit logout/cleanup request
                     await self.cleanup_user(username)
                     return
                 else:
-                    # Update cursor data with user information
                     cursor_data = {
                         **payload,
-                        'id': username,  # Use username as ID
-                        'username': username,  # Use actual username
+                        'id': username,
+                        'username': username,
                         'websocket': exclude_websocket,
                         'user': current_user
                     }
                     self.user_cursors[username] = cursor_data
-                    logger.info(f"Updated cursor for user {username}. Total cursors: {len(self.user_cursors)}")
-                    logger.info(f"Current cursor positions: {[(k, v.get('x', 'N/A'), v.get('y', 'N/A')) for k, v in self.user_cursors.items()]}")
-                    
-                    # Broadcast cursor without sensitive information
                     broadcast_data = {
                         'id': username,
                         'x': cursor_data['x'],
@@ -382,20 +362,21 @@ class ConnectionManager:
                         'type': 'cursor_move',
                         'payload': broadcast_data
                     })
-                    logger.info(f"Broadcasting cursor update: {broadcast_data}")
                     await self._broadcast_message(cursor_message, exclude_websocket)
                 return
 
             elif message_type == 'shape_add':
+                # Only track shape in memory during drawing
                 self.shapes.append(payload)
-                await self.save_shape(payload)  # Save to database
                 await self._broadcast_message(message)
 
             elif message_type == 'shape_update':
                 for i, shape in enumerate(self.shapes):
                     if shape.get('id') == payload.get('id'):
                         self.shapes[i] = payload
-                        await self.save_shape(payload)  # Update in database
+                        # Only save to database if it's a final update
+                        if payload.get('final'):
+                            await self.save_shape(payload)
                         await self._broadcast_message(message)
                         break
 

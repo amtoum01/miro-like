@@ -575,14 +575,24 @@ const Whiteboard: React.FC = () => {
             setIsDrawing(false);
             const lastShape = shapes[shapes.length - 1];
             if (lastShape) {
-              sendToWebSocket({ type: 'shape_update', payload: lastShape });
+              // Send final shape update when drawing is complete
+              sendToWebSocket({ 
+                type: 'shape_update', 
+                payload: { ...lastShape, final: true }
+              });
             }
           }}
           onMouseLeave={(e: any) => {
-            setIsDrawing(false);
-            const lastShape = shapes[shapes.length - 1];
-            if (lastShape) {
-              sendToWebSocket({ type: 'shape_update', payload: lastShape });
+            if (isDrawing) {
+              setIsDrawing(false);
+              const lastShape = shapes[shapes.length - 1];
+              if (lastShape) {
+                // Send final shape update if mouse leaves while drawing
+                sendToWebSocket({ 
+                  type: 'shape_update', 
+                  payload: { ...lastShape, final: true }
+                });
+              }
             }
 
             // Get the cursor position relative to the stage
