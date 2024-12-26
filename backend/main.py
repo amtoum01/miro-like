@@ -128,6 +128,11 @@ class ConnectionManager:
 
     async def connect(self, websocket: WebSocket, user: Optional[models.User] = None):
         await websocket.accept()
+        
+        # If user already has a connection, clean it up first
+        if user:
+            await self._cleanup_existing_connection(user.username)
+        
         connection_info = {
             "socket": websocket,
             "user": user
@@ -151,6 +156,21 @@ class ConnectionManager:
         logger.info(f"Sending initial state to new client. Current cursors: {[cursor.get('username') for cursor in self.user_cursors.values()]}")
         await websocket.send_text(state_message)
 
+    async def _cleanup_existing_connection(self, username: str):
+        """Clean up any existing connection for a user before creating a new one"""
+        existing_connections = [
+            conn for conn in self.active_connections 
+            if conn["user"] and conn["user"].username == username
+        ]
+        
+        for conn in existing_connections:
+            logger.info(f"Cleaning up existing connection for user: {username}")
+            try:
+                await conn["socket"].close()
+                self.active_connections.remove(conn)
+            except Exception as e:
+                logger.error(f"Error closing existing connection for user {username}: {str(e)}")
+
     async def cleanup_user(self, username: str):
         """Clean up all resources associated with a user"""
         logger.info(f"Cleaning up resources for user: {username}")
@@ -162,17 +182,7 @@ class ConnectionManager:
             await self._broadcast_cursor_removal(username)
         
         # Remove user's connections
-        connections_to_remove = [
-            conn for conn in self.active_connections 
-            if conn["user"] and conn["user"].username == username
-        ]
-        
-        for conn in connections_to_remove:
-            self.active_connections.remove(conn)
-            try:
-                await conn["socket"].close()
-            except Exception as e:
-                logger.error(f"Error closing connection for user {username}: {str(e)}")
+        await self._cleanup_existing_connection(username)
         
         logger.info(f"Cleanup complete for user: {username}")
         logger.info(f"Remaining connections: {len(self.active_connections)}")
@@ -194,8 +204,8 @@ class ConnectionManager:
                 if username in self.user_cursors:
                     logger.info(f"Removing cursor for disconnected user: {username}")
                     del self.user_cursors[username]
-                    # Broadcast cursor removal
-                    self._broadcast_cursor_removal(username)
+                    # Broadcast cursor removal synchronously to ensure it happens
+                    asyncio.create_task(self._broadcast_cursor_removal(username))
             
             logger.info(f"Client disconnected. Remaining connections: {len(self.active_connections)}")
             logger.info(f"Remaining users: {[conn['user'].username if conn['user'] else 'Anonymous' for conn in self.active_connections]}")
