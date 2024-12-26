@@ -250,9 +250,12 @@ class ConnectionManager:
 
     async def connect(self, websocket: WebSocket, user: Optional[models.User] = None, db: Session = None):
         try:
-            # Ensure we have a whiteboard ID
+            # Ensure we have a whiteboard ID and database session
             if not self.whiteboard_id and db:
                 await self.get_or_create_whiteboard(db)
+            
+            if not self._db:
+                self._db = db
                 
             await websocket.accept()
             
@@ -266,22 +269,22 @@ class ConnectionManager:
             }
             self.active_connections.append(connection_info)
             logger.info(f"New client connected to whiteboard {self.whiteboard_id}. User: {user.username if user else 'Anonymous'}")
-            logger.info(f"Total connections: {len(self.active_connections)}")
-            logger.info(f"Active users: {[conn['user'].username if conn['user'] else 'Anonymous' for conn in self.active_connections]}")
             
-            # Load latest shapes from database
+            # Load shapes from database
             if self._db and self.whiteboard_id:
                 logger.info(f"Loading shapes from database for whiteboard: {self.whiteboard_id}")
                 try:
+                    # Query all shapes for this whiteboard
                     db_shapes = self._db.query(models.WhiteboardShape).filter(
                         models.WhiteboardShape.whiteboard_id == self.whiteboard_id
                     ).all()
                     
                     if db_shapes:
+                        # Extract shape data and store in memory
                         self.shapes = [shape.shape_data for shape in db_shapes]
                         logger.info(f"Successfully loaded {len(self.shapes)} shapes from database")
                         for shape in self.shapes:
-                            logger.info(f"Loaded shape: {shape}")
+                            logger.info(f"Loaded shape data: {shape}")
                     else:
                         logger.warning(f"No shapes found in database for whiteboard: {self.whiteboard_id}")
                         self.shapes = []
@@ -290,7 +293,7 @@ class ConnectionManager:
                     self.shapes = []
             
             # Send current state to the new client
-            state_message = json.dumps({
+            state_message = {
                 'type': 'current_state',
                 'payload': {
                     'whiteboard_id': self.whiteboard_id,
@@ -300,10 +303,10 @@ class ConnectionManager:
                         for cursor in self.user_cursors.values()
                     ]
                 }
-            })
-            logger.info(f"Sending initial state to new client on whiteboard {self.whiteboard_id}")
-            logger.info(f"Sending {len(self.shapes)} shapes in initial state")
-            await websocket.send_text(state_message)
+            }
+            logger.info(f"Sending initial state with {len(self.shapes)} shapes to client")
+            await websocket.send_text(json.dumps(state_message))
+            
         except Exception as e:
             logger.error(f"Error in connect: {str(e)}")
             raise
