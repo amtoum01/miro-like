@@ -402,13 +402,20 @@ class ConnectionManager:
 
             elif message_type == 'shape_delete':
                 shape_ids = payload.get('ids', [])
-                # Update in-memory shapes
-                self.shapes = [s for s in self.shapes if s.get('id') not in shape_ids]
-                # Delete from database
+                logger.info(f"Received shape_delete request for IDs: {shape_ids}")
+                
+                # Delete from database first
                 for shape_id in shape_ids:
                     await self.delete_shape(shape_id)
-                logger.info(f"Deleted shapes with IDs: {shape_ids}")
+                    logger.info(f"Deleted shape {shape_id} from database")
+                
+                # Then update in-memory shapes
+                self.shapes = [s for s in self.shapes if s.get('id') not in shape_ids]
+                logger.info(f"Updated in-memory shapes. Remaining shapes: {len(self.shapes)}")
+                
+                # Broadcast the deletion to all clients
                 await self._broadcast_message(message)
+                logger.info("Broadcasted shape deletion to all clients")
 
             elif message_type == 'clear':
                 # Clear all shapes from both memory and database
