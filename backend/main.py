@@ -127,24 +127,25 @@ class ConnectionManager:
             return
 
         try:
-            # Get the latest version number for this shape
-            latest_shape = self._db.query(models.WhiteboardShape).filter(
+            # Check if shape already exists
+            existing_shape = self._db.query(models.WhiteboardShape).filter(
                 models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
                 models.WhiteboardShape.shape_data['id'].astext == str(shape['id'])
-            ).order_by(models.WhiteboardShape.version.desc()).first()
+            ).first()
 
-            # Create new shape version
-            new_version = (latest_shape.version + 1) if latest_shape else 1
+            if existing_shape:
+                # Update existing shape
+                existing_shape.shape_data = shape
+            else:
+                # Create new shape
+                new_shape = models.WhiteboardShape(
+                    whiteboard_id=self.whiteboard_id,
+                    shape_data=shape
+                )
+                self._db.add(new_shape)
             
-            # Always create a new record for each update
-            new_shape = models.WhiteboardShape(
-                whiteboard_id=self.whiteboard_id,
-                shape_data=shape,
-                version=new_version
-            )
-            self._db.add(new_shape)
             self._db.commit()
-            logger.info(f"Saved shape version {new_version} to database")
+            logger.info(f"Saved/updated shape {shape['id']} in database")
 
         except Exception as e:
             logger.error(f"Error saving shape to database: {str(e)}")
@@ -387,14 +388,14 @@ class ConnectionManager:
 
             elif message_type == 'shape_add':
                 self.shapes.append(payload)
-                await self.save_shape(payload)  # Save initial version
+                await self.save_shape(payload)  # Save to database
                 await self._broadcast_message(message)
 
             elif message_type == 'shape_update':
                 for i, shape in enumerate(self.shapes):
                     if shape.get('id') == payload.get('id'):
                         self.shapes[i] = payload
-                        await self.save_shape(payload)  # Save new version
+                        await self.save_shape(payload)  # Update in database
                         await self._broadcast_message(message)
                         break
 
@@ -417,9 +418,13 @@ class ConnectionManager:
 
             elif message_type == 'request_state':
                 logger.info("Received state request")
-                # Load latest shape versions from database
-                self.shapes = await self.get_latest_shapes()
-                logger.info(f"Loaded {len(self.shapes)} latest shapes from database")
+                # Load shapes from database
+                if self._db and self.whiteboard_id:
+                    db_shapes = self._db.query(models.WhiteboardShape).filter(
+                        models.WhiteboardShape.whiteboard_id == self.whiteboard_id
+                    ).all()
+                    self.shapes = [shape.shape_data for shape in db_shapes]
+                    logger.info(f"Loaded {len(self.shapes)} shapes from database")
                 
                 state_message = json.dumps({
                     'type': 'current_state',
