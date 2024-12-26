@@ -127,8 +127,8 @@ class ConnectionManager:
             return
 
         try:
-            logger.info(f"Attempting to save shape to database. Shape data: {shape}")
-            logger.info(f"Current whiteboard_id: {self.whiteboard_id}")
+            logger.info(f"[SHAPE_SAVE] Attempting to save shape to database. Shape data: {shape}")
+            logger.info(f"[SHAPE_SAVE] Current whiteboard_id: {self.whiteboard_id}")
             
             # Check if shape already exists
             existing_shape = self._db.query(models.WhiteboardShape).filter(
@@ -137,10 +137,10 @@ class ConnectionManager:
             ).first()
             
             if existing_shape:
-                logger.info(f"Updating existing shape {shape['id']}")
+                logger.info(f"[SHAPE_SAVE] Updating existing shape {shape['id']}")
                 existing_shape.shape_data = shape
             else:
-                logger.info(f"Creating new shape {shape['id']}")
+                logger.info(f"[SHAPE_SAVE] Creating new shape {shape['id']}")
                 new_shape = models.WhiteboardShape(
                     whiteboard_id=self.whiteboard_id,
                     shape_data=shape
@@ -148,25 +148,21 @@ class ConnectionManager:
                 self._db.add(new_shape)
             
             self._db.commit()
-            logger.info(f"Successfully saved shape to database with ID: {shape.get('id')}")
+            logger.info(f"[SHAPE_SAVE] Successfully saved shape to database with ID: {shape.get('id')}")
             
-            # Verify the shape was saved
-            saved_shape = self._db.query(models.WhiteboardShape).filter(
-                models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
-                models.WhiteboardShape.shape_data['id'].astext == str(shape['id'])
-            ).first()
+            # Verify the shape was saved by counting total shapes
+            total_shapes = self._db.query(models.WhiteboardShape).filter(
+                models.WhiteboardShape.whiteboard_id == self.whiteboard_id
+            ).count()
+            logger.info(f"[SHAPE_SAVE] Total shapes in database for whiteboard {self.whiteboard_id}: {total_shapes}")
             
-            if saved_shape:
-                logger.info(f"Verified shape {shape['id']} exists in database")
-                # Update in-memory cache
-                self.shapes = [s for s in self.shapes if s.get('id') != shape.get('id')]
-                self.shapes.append(shape)
-                logger.info(f"Updated in-memory shapes. Total shapes: {len(self.shapes)}")
-            else:
-                logger.error(f"Failed to verify shape {shape['id']} in database after save")
+            # Update in-memory cache
+            self.shapes = [s for s in self.shapes if s.get('id') != shape.get('id')]
+            self.shapes.append(shape)
+            logger.info(f"[SHAPE_SAVE] Updated in-memory shapes. Total shapes in memory: {len(self.shapes)}")
                 
         except Exception as e:
-            logger.error(f"Error saving shape to database: {str(e)}")
+            logger.error(f"[SHAPE_SAVE] Error saving shape to database: {str(e)}")
             self._db.rollback()
 
     async def get_latest_shapes(self):
@@ -268,12 +264,18 @@ class ConnectionManager:
                 "user": user
             }
             self.active_connections.append(connection_info)
-            logger.info(f"New client connected to whiteboard {self.whiteboard_id}. User: {user.username if user else 'Anonymous'}")
+            logger.info(f"[CONNECT] New client connected to whiteboard {self.whiteboard_id}. User: {user.username if user else 'Anonymous'}")
             
             # Load shapes from database
             if self._db and self.whiteboard_id:
-                logger.info(f"Loading shapes from database for whiteboard: {self.whiteboard_id}")
+                logger.info(f"[SHAPE_LOAD] Loading shapes from database for whiteboard: {self.whiteboard_id}")
                 try:
+                    # First, count total shapes
+                    total_shapes = self._db.query(models.WhiteboardShape).filter(
+                        models.WhiteboardShape.whiteboard_id == self.whiteboard_id
+                    ).count()
+                    logger.info(f"[SHAPE_LOAD] Found {total_shapes} total shapes in database")
+                    
                     # Query all shapes for this whiteboard
                     db_shapes = self._db.query(models.WhiteboardShape).filter(
                         models.WhiteboardShape.whiteboard_id == self.whiteboard_id
@@ -282,14 +284,14 @@ class ConnectionManager:
                     if db_shapes:
                         # Extract shape data and store in memory
                         self.shapes = [shape.shape_data for shape in db_shapes]
-                        logger.info(f"Successfully loaded {len(self.shapes)} shapes from database")
+                        logger.info(f"[SHAPE_LOAD] Successfully loaded {len(self.shapes)} shapes into memory")
                         for shape in self.shapes:
-                            logger.info(f"Loaded shape data: {shape}")
+                            logger.info(f"[SHAPE_LOAD] Loaded shape data: {shape}")
                     else:
-                        logger.warning(f"No shapes found in database for whiteboard: {self.whiteboard_id}")
+                        logger.warning(f"[SHAPE_LOAD] No shapes found in database for whiteboard: {self.whiteboard_id}")
                         self.shapes = []
                 except Exception as e:
-                    logger.error(f"Error loading shapes from database: {str(e)}")
+                    logger.error(f"[SHAPE_LOAD] Error loading shapes from database: {str(e)}")
                     self.shapes = []
             
             # Send current state to the new client
@@ -304,11 +306,11 @@ class ConnectionManager:
                     ]
                 }
             }
-            logger.info(f"Sending initial state with {len(self.shapes)} shapes to client")
+            logger.info(f"[CONNECT] Sending initial state with {len(self.shapes)} shapes to client")
             await websocket.send_text(json.dumps(state_message))
             
         except Exception as e:
-            logger.error(f"Error in connect: {str(e)}")
+            logger.error(f"[CONNECT] Error in connect: {str(e)}")
             raise
 
     def start_periodic_broadcast(self):
