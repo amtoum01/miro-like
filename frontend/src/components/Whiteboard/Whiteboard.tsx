@@ -214,16 +214,16 @@ const Whiteboard: React.FC = () => {
                   return newCursors;
                 });
               }
-            } else {
-              console.log('Ignoring cursor update for self');
             }
             break;
           case 'shape_add':
             const newShape = message.payload;
+            console.log('Adding new shape:', newShape);
             setShapes(prevShapes => [...prevShapes, newShape]);
             break;
           case 'shape_update':
             const updatedShape = message.payload;
+            console.log('Updating shape:', updatedShape);
             setShapes(prevShapes => {
               const filtered = prevShapes.filter(s => s.id !== updatedShape.id);
               return [...filtered, updatedShape];
@@ -231,30 +231,28 @@ const Whiteboard: React.FC = () => {
             break;
           case 'shape_delete':
             const { ids } = message.payload;
+            console.log('Deleting shapes:', ids);
             setShapes(prevShapes => 
               prevShapes.filter(shape => !ids.includes(shape.id))
             );
             break;
           case 'clear':
+            console.log('Clearing all shapes');
             setShapes([]);
             break;
           case 'current_state':
             console.log('Received current state:', message.payload);
             const { shapes: currentShapes, cursors: currentCursors, whiteboard_id } = message.payload;
-            console.log('Current cursors from state:', currentCursors);
+            console.log('Current shapes:', currentShapes);
+            console.log('Current cursors:', currentCursors);
             if (currentShapes) {
               setShapes(currentShapes);
             }
             if (currentCursors) {
               setCursors(prevCursors => {
-                console.log('Previous cursors before state update:', prevCursors);
                 const ourCursor = prevCursors.find((c: Cursor) => c.id === username);
-                console.log('Our cursor:', ourCursor);
                 const otherCursors = currentCursors.filter((c: Cursor) => c.id !== username);
-                console.log('Other cursors:', otherCursors);
-                const newCursors = [...otherCursors, ...(ourCursor ? [ourCursor] : [])];
-                console.log('New cursors after state update:', newCursors);
-                return newCursors;
+                return [...otherCursors, ...(ourCursor ? [ourCursor] : [])];
               });
             }
             if (whiteboard_id) {
@@ -384,6 +382,14 @@ const Whiteboard: React.FC = () => {
       color: userColor,
       username: username,
     };
+
+    // Update local cursor state immediately
+    setCursors(prevCursors => {
+      const filtered = prevCursors.filter(c => c.id !== username);
+      return [...filtered, cursorData];
+    });
+
+    // Send to WebSocket
     sendToWebSocket({ type: 'cursor_move', payload: cursorData });
 
     if (!isDrawing) return;
