@@ -2,21 +2,14 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from dotenv import load_dotenv
 import logging
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load environment variables from .env file
-load_dotenv(override=True)
-
-# Get DATABASE_URL from environment variable
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    logger.warning("DATABASE_URL not found in environment, using SQLite as fallback")
-    DATABASE_URL = "sqlite:///./whiteboard.db"
+# Get DATABASE_URL from Railway's environment variable
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:UXwLKiZQVBracxEMfjExpjpRVPqRszNi@junction.proxy.rlwy.net:51820/railway")
 
 logger.info(f"Using database URL: {DATABASE_URL}")
 

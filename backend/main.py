@@ -23,8 +23,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Log database configuration
-database_url = os.getenv("DATABASE_URL", "Not configured")
-logger.info(f"Database URL from environment: {database_url}")
+from database import DATABASE_URL
+logger.info(f"Database URL from environment: {DATABASE_URL}")
 
 import models
 import auth
@@ -350,7 +350,9 @@ class ConnectionManager:
                         'active_users': active_users,
                         'total_cursors': len(self.user_cursors),
                         'cursor_usernames': list(self.user_cursors.keys()),
-                        'database_url': os.getenv("DATABASE_URL", "Not configured")
+                        'database_url': DATABASE_URL,
+                        'database_connected': bool(self._db),
+                        'total_shapes_in_memory': len(self.shapes)
                     }
                 }
                 
