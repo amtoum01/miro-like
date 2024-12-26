@@ -18,8 +18,19 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
     logger.info(f"Converted database URL to: {DATABASE_URL}")
 
-# Create engine with proper URL
-engine = create_engine(DATABASE_URL)
+# Create engine with proper URL and timeout settings
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    connect_args={
+        'connect_timeout': 10,
+        'keepalives': 1,
+        'keepalives_idle': 30,
+        'keepalives_interval': 10,
+        'keepalives_count': 5
+    }
+)
 logger.info("Database engine created successfully")
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

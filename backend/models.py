@@ -44,6 +44,7 @@ class WhiteboardShape(Base):
     id = Column(Integer, primary_key=True, index=True)
     whiteboard_id = Column(String, ForeignKey("whiteboards.board_id"))
     shape_data = Column(JSON)
+    final_state = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

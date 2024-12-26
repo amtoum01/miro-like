@@ -131,48 +131,41 @@ class ConnectionManager:
                 db.rollback()
                 raise
 
-    async def save_shape(self, shape: dict):
+    async def save_shape(self, shape: dict, is_final: bool = False):
         """Save a shape to the database"""
         if not self._db or not self.whiteboard_id:
             logger.error("Cannot save shape: no database session or whiteboard ID")
             return
 
         try:
-            logger.info(f"[SHAPE_SAVE] Starting shape save operation...")
-            logger.info(f"[SHAPE_SAVE] Shape data: {shape}")
-            logger.info(f"[SHAPE_SAVE] Whiteboard ID: {self.whiteboard_id}")
-            logger.info(f"[SHAPE_SAVE] Database session exists: {bool(self._db)}")
-            
-            # Create new shape
-            new_shape = models.WhiteboardShape(
-                whiteboard_id=self.whiteboard_id,
-                shape_data=shape
-            )
-            
-            logger.info(f"[SHAPE_SAVE] Created new WhiteboardShape object")
-            self._db.add(new_shape)
-            logger.info(f"[SHAPE_SAVE] Added shape to session")
-            
-            try:
-                self._db.commit()
-                logger.info(f"[SHAPE_SAVE] Successfully committed shape to database")
-            except Exception as commit_error:
-                logger.error(f"[SHAPE_SAVE] Commit error: {str(commit_error)}")
-                self._db.rollback()
-                raise
-            
-            # Verify the save
-            saved_shape = self._db.query(models.WhiteboardShape).filter(
-                models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
-                models.WhiteboardShape.shape_data['id'].astext == str(shape['id'])
-            ).first()
-            
-            if saved_shape:
-                logger.info(f"[SHAPE_SAVE] Verified shape was saved. ID: {saved_shape.id}")
+            # Only save to database if it's the final state
+            if is_final:
+                logger.info(f"[SHAPE_SAVE] Starting final shape save operation...")
+                logger.info(f"[SHAPE_SAVE] Shape data: {shape}")
+                logger.info(f"[SHAPE_SAVE] Whiteboard ID: {self.whiteboard_id}")
+                
+                # Create new shape
+                new_shape = models.WhiteboardShape(
+                    whiteboard_id=self.whiteboard_id,
+                    shape_data=shape,
+                    final_state=True
+                )
+                
+                logger.info(f"[SHAPE_SAVE] Created new WhiteboardShape object")
+                self._db.add(new_shape)
+                logger.info(f"[SHAPE_SAVE] Added shape to session")
+                
+                try:
+                    self._db.commit()
+                    logger.info(f"[SHAPE_SAVE] Successfully committed final shape to database")
+                except Exception as commit_error:
+                    logger.error(f"[SHAPE_SAVE] Commit error: {str(commit_error)}")
+                    self._db.rollback()
+                    raise
             else:
-                logger.error("[SHAPE_SAVE] Shape was not found in database after save!")
+                logger.info(f"[SHAPE_SAVE] Skipping database save for non-final shape")
             
-            # Update in-memory cache
+            # Always update in-memory cache
             self.shapes = [s for s in self.shapes if s.get('id') != shape.get('id')]
             self.shapes.append(shape)
             logger.info(f"[SHAPE_SAVE] Updated in-memory shapes. Total shapes in memory: {len(self.shapes)}")
@@ -478,6 +471,7 @@ class ConnectionManager:
                 await self._broadcast_message(message)
 
             elif message_type == 'shape_update':
+                is_final = payload.get('final', False)
                 # Find and update the shape in memory
                 shape_found = False
                 for i, shape in enumerate(self.shapes):
@@ -490,9 +484,13 @@ class ConnectionManager:
                 if not shape_found:
                     self.shapes.append(payload)
                 
-                # Always save to database
-                logger.info(f"Saving shape to database: {payload}")
-                await self.save_shape(payload)
+                # Only save to database if it's the final state
+                if is_final:
+                    logger.info(f"Saving final shape to database: {payload}")
+                    await self.save_shape(payload, is_final=True)
+                else:
+                    logger.info(f"Skipping database save for non-final shape update")
+                
                 await self._broadcast_message(message)
 
             elif message_type == 'shape_delete':
