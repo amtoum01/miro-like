@@ -674,24 +674,47 @@ async def websocket_endpoint(
     token: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    client_host = websocket.client.host
-    logger.info(f"New WebSocket connection attempt from IP: {client_host}")
-    
-    user = await get_current_user_from_token(token, db)
-    logger.info(f"User authenticated: {user.username if user else 'Anonymous'} from IP: {client_host}")
-    
-    await manager.connect(websocket, user, db)
     try:
-        while True:
-            data = await websocket.receive_text()
-            logger.info(f"Received message from user {user.username if user else 'Anonymous'} at {client_host}: {data[:200]}...")
-            await manager.broadcast(data, exclude_websocket=websocket, current_user=user)
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for user {user.username if user else 'Anonymous'} at {client_host}")
-        manager.disconnect(websocket)
+        client_host = websocket.client.host
+        logger.info(f"New WebSocket connection attempt from IP: {client_host}")
+        
+        # Log token information
+        logger.info(f"Received token: {token[:10]}..." if token else "No token received")
+        
+        user = await get_current_user_from_token(token, db)
+        if not user:
+            logger.error("User authentication failed")
+            await websocket.close(code=1008)  # Policy violation
+            return
+            
+        logger.info(f"User authenticated: {user.username} from IP: {client_host}")
+        
+        # Try to connect
+        try:
+            await manager.connect(websocket, user, db)
+            logger.info(f"Successfully connected user {user.username} to WebSocket")
+        except Exception as conn_error:
+            logger.error(f"Error in manager.connect: {str(conn_error)}", exc_info=True)
+            raise
+        
+        try:
+            while True:
+                data = await websocket.receive_text()
+                logger.info(f"Received message from user {user.username} at {client_host}: {data[:200]}...")
+                await manager.broadcast(data, exclude_websocket=websocket, current_user=user)
+        except WebSocketDisconnect:
+            logger.info(f"WebSocket disconnected for user {user.username} at {client_host}")
+            manager.disconnect(websocket)
+        except Exception as e:
+            logger.error(f"Error in WebSocket message loop: {str(e)}", exc_info=True)
+            manager.disconnect(websocket)
+            
     except Exception as e:
-        logger.error(f"WebSocket error for user {user.username if user else 'Anonymous'} at {client_host}: {str(e)}", exc_info=True)
-        manager.disconnect(websocket)
+        logger.error(f"Unhandled WebSocket error: {str(e)}", exc_info=True)
+        try:
+            await websocket.close(code=1011)  # Internal error
+        except:
+            pass
 
 @app.get("/")
 async def health_check():
