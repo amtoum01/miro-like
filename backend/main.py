@@ -177,14 +177,34 @@ class ConnectionManager:
             return
 
         try:
-            self._db.query(models.WhiteboardShape).filter(
+            # Delete the shape from database
+            result = self._db.query(models.WhiteboardShape).filter(
                 models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
-                models.WhiteboardShape.shape_data['id'].astext == shape_id
+                models.WhiteboardShape.shape_data['id'].astext == str(shape_id)
             ).delete(synchronize_session=False)
             self._db.commit()
-            logger.info(f"Deleted shape {shape_id} from database")
+            logger.info(f"Deleted shape {shape_id} from database. Rows affected: {result}")
         except Exception as e:
             logger.error(f"Error deleting shape from database: {str(e)}")
+            self._db.rollback()
+
+    async def clear_all_shapes(self):
+        """Clear all shapes for the current whiteboard"""
+        if not self._db or not self.whiteboard_id:
+            logger.error("Cannot clear shapes: no database session or whiteboard ID")
+            return
+
+        try:
+            # Delete all shapes for this whiteboard from database
+            result = self._db.query(models.WhiteboardShape).filter(
+                models.WhiteboardShape.whiteboard_id == self.whiteboard_id
+            ).delete(synchronize_session=False)
+            self._db.commit()
+            # Clear in-memory shapes
+            self.shapes = []
+            logger.info(f"Cleared all shapes for whiteboard {self.whiteboard_id}. Rows affected: {result}")
+        except Exception as e:
+            logger.error(f"Error clearing shapes from database: {str(e)}")
             self._db.rollback()
 
     async def connect(self, websocket: WebSocket, user: Optional[models.User] = None, db: Session = None):
@@ -334,7 +354,7 @@ class ConnectionManager:
             payload = data.get('payload', {})
 
             if message_type == 'cursor_move':
-                if not current_user:  # Only handle cursor moves from authenticated users
+                if not current_user:
                     logger.warning("Received cursor_move from unauthenticated user")
                     return
                     
@@ -382,19 +402,18 @@ class ConnectionManager:
 
             elif message_type == 'shape_delete':
                 shape_ids = payload.get('ids', [])
+                # Update in-memory shapes
                 self.shapes = [s for s in self.shapes if s.get('id') not in shape_ids]
+                # Delete from database
                 for shape_id in shape_ids:
-                    await self.delete_shape(shape_id)  # Delete from database
+                    await self.delete_shape(shape_id)
+                logger.info(f"Deleted shapes with IDs: {shape_ids}")
                 await self._broadcast_message(message)
 
             elif message_type == 'clear':
-                if self._db and self.whiteboard_id:
-                    # Clear all shapes from database
-                    self._db.query(models.WhiteboardShape).filter(
-                        models.WhiteboardShape.whiteboard_id == self.whiteboard_id
-                    ).delete(synchronize_session=False)
-                    self._db.commit()
-                self.shapes = []
+                # Clear all shapes from both memory and database
+                await self.clear_all_shapes()
+                logger.info("Cleared all shapes")
                 await self._broadcast_message(message)
 
             elif message_type == 'request_state':
