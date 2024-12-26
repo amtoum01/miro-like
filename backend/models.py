@@ -56,5 +56,5 @@ class Whiteboard(Base):
     board_id = Column(String, unique=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True, nullable=False)
     shapes = relationship("WhiteboardShape", back_populates="whiteboard", cascade="all, delete-orphan")

@@ -102,7 +102,7 @@ class ConnectionManager:
             try:
                 self._db = db  # Store db session for later use
                 active_whiteboard = db.query(models.Whiteboard).filter(
-                    models.Whiteboard.is_active == 1
+                    models.Whiteboard.is_active == True
                 ).with_for_update().first()
 
                 if active_whiteboard:
@@ -115,7 +115,10 @@ class ConnectionManager:
                     logger.info(f"Loaded {len(self.shapes)} shapes for whiteboard: {self.whiteboard_id}")
                 else:
                     new_board_id = os.urandom(8).hex()
-                    new_whiteboard = models.Whiteboard(board_id=new_board_id)
+                    new_whiteboard = models.Whiteboard(
+                        board_id=new_board_id,
+                        is_active=True
+                    )
                     db.add(new_whiteboard)
                     db.commit()
                     db.refresh(new_whiteboard)
