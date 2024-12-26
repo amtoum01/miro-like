@@ -186,25 +186,28 @@ class ConnectionManager:
             return []
 
     async def delete_shape(self, shape_id: str):
-        """Delete a shape from the database and memory"""
+        """Delete a shape from the database"""
         if not self._db or not self.whiteboard_id:
             logger.error("Cannot delete shape: no database session or whiteboard ID")
             return
 
         try:
-            # Delete the shape from database first, exactly like clear_all_shapes
-            result = self._db.query(models.WhiteboardShape).filter(
+            # Delete the shape from database
+            logger.info(f"Attempting to delete shape {shape_id} from whiteboard {self.whiteboard_id}")
+            
+            # First, find the shape to confirm it exists
+            shape = self._db.query(models.WhiteboardShape).filter(
                 models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
                 models.WhiteboardShape.shape_data['id'].astext == str(shape_id)
-            ).delete(synchronize_session=False)
+            ).first()
             
-            # Commit database changes first
-            self._db.commit()
-            logger.info(f"Successfully deleted shape {shape_id} from database. Rows affected: {result}")
-            
-            # Then clear from memory, exactly like clear_all_shapes
-            self.shapes = [s for s in self.shapes if s.get('id') != shape_id]
-            logger.info(f"Removed shape {shape_id} from memory. Remaining shapes: {len(self.shapes)}")
+            if shape:
+                # Delete the shape
+                self._db.delete(shape)
+                self._db.commit()
+                logger.info(f"Successfully deleted shape {shape_id} from database")
+            else:
+                logger.warning(f"Shape {shape_id} not found in database")
                 
         except Exception as e:
             logger.error(f"Error deleting shape from database: {str(e)}")
@@ -437,6 +440,12 @@ class ConnectionManager:
                 for shape_id in shape_ids:
                     logger.info(f"Processing deletion for shape {shape_id}")
                     await self.delete_shape(shape_id)
+                
+                # Then update in-memory shapes
+                original_count = len(self.shapes)
+                self.shapes = [s for s in self.shapes if s.get('id') not in shape_ids]
+                deleted_count = original_count - len(self.shapes)
+                logger.info(f"Removed {deleted_count} shapes from memory. Remaining shapes: {len(self.shapes)}")
                 
                 # Broadcast the deletion to all clients
                 await self._broadcast_message(message)
