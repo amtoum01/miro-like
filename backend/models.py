@@ -11,8 +11,8 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     boards = relationship("Board", back_populates="owner")
 
@@ -22,7 +22,7 @@ class Board(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String)
     owner_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     owner = relationship("User", back_populates="boards")
     shapes = relationship("Shape", back_populates="board", cascade="all, delete-orphan")
@@ -34,7 +34,7 @@ class Shape(Base):
     board_id = Column(Integer, ForeignKey("boards.id"))
     type = Column(String)  # rectangle, circle, etc.
     properties = Column(JSON)  # x, y, width, height, etc.
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     board = relationship("Board", back_populates="shapes")
 
@@ -44,8 +44,8 @@ class WhiteboardShape(Base):
     id = Column(Integer, primary_key=True, index=True)
     whiteboard_id = Column(String, ForeignKey("whiteboards.board_id"))
     shape_data = Column(JSON)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     whiteboard = relationship("Whiteboard", back_populates="shapes")
 
@@ -54,7 +54,7 @@ class Whiteboard(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     board_id = Column(String, unique=True, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = Column(Boolean, default=True)
     shapes = relationship("WhiteboardShape", back_populates="whiteboard", cascade="all, delete-orphan")
