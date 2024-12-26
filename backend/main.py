@@ -186,26 +186,25 @@ class ConnectionManager:
             return []
 
     async def delete_shape(self, shape_id: str):
-        """Delete a shape from the database"""
+        """Delete a shape from the database and memory"""
         if not self._db or not self.whiteboard_id:
             logger.error("Cannot delete shape: no database session or whiteboard ID")
             return
 
         try:
-            # Delete the shape from database
-            logger.info(f"Attempting to delete shape {shape_id} from whiteboard {self.whiteboard_id}")
-            
-            # Delete all versions of the shape
+            # Delete the shape from database first, exactly like clear_all_shapes
             result = self._db.query(models.WhiteboardShape).filter(
                 models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
                 models.WhiteboardShape.shape_data['id'].astext == str(shape_id)
             ).delete(synchronize_session=False)
             
+            # Commit database changes first
             self._db.commit()
             logger.info(f"Successfully deleted shape {shape_id} from database. Rows affected: {result}")
             
-            # Also remove from in-memory cache
+            # Then clear from memory, exactly like clear_all_shapes
             self.shapes = [s for s in self.shapes if s.get('id') != shape_id]
+            logger.info(f"Removed shape {shape_id} from memory. Remaining shapes: {len(self.shapes)}")
                 
         except Exception as e:
             logger.error(f"Error deleting shape from database: {str(e)}")
