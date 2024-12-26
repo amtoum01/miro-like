@@ -341,7 +341,8 @@ class ConnectionManager:
                         'total_connections': len(self.active_connections),
                         'active_users': active_users,
                         'total_cursors': len(self.user_cursors),
-                        'cursor_usernames': list(self.user_cursors.keys())
+                        'cursor_usernames': list(self.user_cursors.keys()),
+                        'database_url': os.getenv("DATABASE_URL", "Not configured")
                     }
                 }
                 

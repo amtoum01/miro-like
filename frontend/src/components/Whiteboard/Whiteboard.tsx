@@ -99,6 +99,7 @@ const Whiteboard: React.FC = () => {
     activeUsers: Array<{ username: string; ip: string }>;
     totalCursors: number;
     cursorUsernames: string[];
+    database_url?: string;
   }>({
     whiteboard_id: '',
     totalConnections: 0,
@@ -773,6 +774,7 @@ const Whiteboard: React.FC = () => {
         <div>Total Cursors: {connectionStatus.totalCursors}</div>
         <div>Your username: {username || 'Not logged in'}</div>
         <div>Your Color: <span style={{ color: userColor }}>{userColor}</span></div>
+        <div>Database URL: {connectionStatus.database_url || 'Not available'}</div>
         <div>Active Users:</div>
         <div style={{ marginLeft: '10px' }}>
           {connectionStatus.activeUsers.map((user, index) => (
