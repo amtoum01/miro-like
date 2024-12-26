@@ -349,6 +349,7 @@ class ConnectionManager:
                 for i, shape in enumerate(self.shapes):
                     if shape.get('id') == payload.get('id'):
                         self.shapes[i] = payload
+                        await self.update_shape(payload)  # Update in database
                         await self._broadcast_message(message)
                         break
 
@@ -371,10 +372,17 @@ class ConnectionManager:
 
             elif message_type == 'request_state':
                 logger.info("Received state request")
-                # Send current state to the requesting client
+                # Load latest shapes from database to ensure consistency
+                if self._db and self.whiteboard_id:
+                    db_shapes = self._db.query(models.WhiteboardShape).filter(
+                        models.WhiteboardShape.whiteboard_id == self.whiteboard_id
+                    ).all()
+                    self.shapes = [shape.shape_data for shape in db_shapes]
+                
                 state_message = json.dumps({
                     'type': 'current_state',
                     'payload': {
+                        'whiteboard_id': self.whiteboard_id,
                         'shapes': self.shapes,
                         'cursors': [
                             {k: v for k, v in cursor.items() if k not in ['websocket', 'user']}
@@ -382,7 +390,7 @@ class ConnectionManager:
                         ]
                     }
                 })
-                logger.info(f"Sending current state. Cursors: {self.user_cursors}")
+                logger.info(f"Sending current state with {len(self.shapes)} shapes")
                 if exclude_websocket:
                     await exclude_websocket.send_text(state_message)
                 return
@@ -424,6 +432,30 @@ class ConnectionManager:
             'payload': {'id': username, 'remove': True}
         })
         await self._broadcast_message(removal_message)
+
+    async def update_shape(self, shape: dict):
+        """Update a shape in the database"""
+        if not self._db or not self.whiteboard_id:
+            logger.error("Cannot update shape: no database session or whiteboard ID")
+            return
+
+        try:
+            # Find and update the shape
+            db_shape = self._db.query(models.WhiteboardShape).filter(
+                models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
+                models.WhiteboardShape.shape_data['id'].astext == str(shape['id'])
+            ).first()
+
+            if db_shape:
+                db_shape.shape_data = shape
+                self._db.commit()
+                logger.info(f"Updated shape {shape['id']} in database")
+            else:
+                # If shape doesn't exist, create it
+                await self.save_shape(shape)
+        except Exception as e:
+            logger.error(f"Error updating shape in database: {str(e)}")
+            self._db.rollback()
 
 manager = ConnectionManager()
 
