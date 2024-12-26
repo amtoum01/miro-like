@@ -35,3 +35,11 @@ class Shape(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     board = relationship("Board", back_populates="shapes")
+
+class Whiteboard(Base):
+    __tablename__ = "whiteboards"
+
+    id = Column(Integer, primary_key=True, index=True)
+    board_id = Column(String, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_active = Column(Integer, default=1)  # Use this as a boolean flag
