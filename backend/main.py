@@ -77,29 +77,34 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[Dict[str, any]] = []
         self.user_cursors: Dict[str, dict] = {}
-        self.shapes: List[dict] = []
+        self.shapes: List[dict] = []  # Cache of shapes
         self.status_task = None
         self.whiteboard_id = None
-        self._whiteboard_lock = asyncio.Lock()  # Add lock for synchronization
+        self._whiteboard_lock = asyncio.Lock()
+        self._db: Optional[Session] = None  # Store db session
         logger.info("ConnectionManager initialized")
 
     async def get_or_create_whiteboard(self, db: Session) -> str:
         """Get the active whiteboard ID or create a new one if none exists"""
-        async with self._whiteboard_lock:  # Use lock to prevent race conditions
+        async with self._whiteboard_lock:
             if self.whiteboard_id:
                 return self.whiteboard_id
 
             try:
-                # Try to get existing active whiteboard
+                self._db = db  # Store db session for later use
                 active_whiteboard = db.query(models.Whiteboard).filter(
                     models.Whiteboard.is_active == 1
-                ).with_for_update().first()  # Add database-level locking
+                ).with_for_update().first()
 
                 if active_whiteboard:
                     self.whiteboard_id = active_whiteboard.board_id
-                    logger.info(f"Using existing whiteboard: {self.whiteboard_id}")
+                    # Load shapes from database
+                    db_shapes = db.query(models.WhiteboardShape).filter(
+                        models.WhiteboardShape.whiteboard_id == self.whiteboard_id
+                    ).all()
+                    self.shapes = [shape.shape_data for shape in db_shapes]
+                    logger.info(f"Loaded {len(self.shapes)} shapes for whiteboard: {self.whiteboard_id}")
                 else:
-                    # Create new whiteboard
                     new_board_id = os.urandom(8).hex()
                     new_whiteboard = models.Whiteboard(board_id=new_board_id)
                     db.add(new_whiteboard)
@@ -113,6 +118,41 @@ class ConnectionManager:
                 logger.error(f"Error in get_or_create_whiteboard: {str(e)}")
                 db.rollback()
                 raise
+
+    async def save_shape(self, shape: dict):
+        """Save a shape to the database"""
+        if not self._db or not self.whiteboard_id:
+            logger.error("Cannot save shape: no database session or whiteboard ID")
+            return
+
+        try:
+            new_shape = models.WhiteboardShape(
+                whiteboard_id=self.whiteboard_id,
+                shape_data=shape
+            )
+            self._db.add(new_shape)
+            self._db.commit()
+            logger.info(f"Saved shape to database for whiteboard {self.whiteboard_id}")
+        except Exception as e:
+            logger.error(f"Error saving shape to database: {str(e)}")
+            self._db.rollback()
+
+    async def delete_shape(self, shape_id: str):
+        """Delete a shape from the database"""
+        if not self._db or not self.whiteboard_id:
+            logger.error("Cannot delete shape: no database session or whiteboard ID")
+            return
+
+        try:
+            self._db.query(models.WhiteboardShape).filter(
+                models.WhiteboardShape.whiteboard_id == self.whiteboard_id,
+                models.WhiteboardShape.shape_data['id'].astext == shape_id
+            ).delete(synchronize_session=False)
+            self._db.commit()
+            logger.info(f"Deleted shape {shape_id} from database")
+        except Exception as e:
+            logger.error(f"Error deleting shape from database: {str(e)}")
+            self._db.rollback()
 
     async def connect(self, websocket: WebSocket, user: Optional[models.User] = None, db: Session = None):
         try:
@@ -302,6 +342,7 @@ class ConnectionManager:
 
             elif message_type == 'shape_add':
                 self.shapes.append(payload)
+                await self.save_shape(payload)  # Save to database
                 await self._broadcast_message(message)
 
             elif message_type == 'shape_update':
@@ -314,9 +355,17 @@ class ConnectionManager:
             elif message_type == 'shape_delete':
                 shape_ids = payload.get('ids', [])
                 self.shapes = [s for s in self.shapes if s.get('id') not in shape_ids]
+                for shape_id in shape_ids:
+                    await self.delete_shape(shape_id)  # Delete from database
                 await self._broadcast_message(message)
 
             elif message_type == 'clear':
+                if self._db and self.whiteboard_id:
+                    # Clear all shapes from database
+                    self._db.query(models.WhiteboardShape).filter(
+                        models.WhiteboardShape.whiteboard_id == self.whiteboard_id
+                    ).delete(synchronize_session=False)
+                    self._db.commit()
                 self.shapes = []
                 await self._broadcast_message(message)
 

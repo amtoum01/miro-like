@@ -36,10 +36,19 @@ class Shape(Base):
 
     board = relationship("Board", back_populates="shapes")
 
+class WhiteboardShape(Base):
+    __tablename__ = "whiteboard_shapes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    whiteboard_id = Column(String, ForeignKey("whiteboards.board_id"))
+    shape_data = Column(JSON)  # Store the entire shape object
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class Whiteboard(Base):
     __tablename__ = "whiteboards"
 
     id = Column(Integer, primary_key=True, index=True)
     board_id = Column(String, unique=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    is_active = Column(Integer, default=1)  # Use this as a boolean flag
+    is_active = Column(Integer, default=1)
+    shapes = relationship("WhiteboardShape", cascade="all, delete-orphan")
