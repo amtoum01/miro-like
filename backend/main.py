@@ -75,14 +75,20 @@ async def get_current_user_from_token(
 # Modify the WebSocket connection manager
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: List[Dict[str, any]] = []  # Store connection info including user
-        self.user_cursors: Dict[str, dict] = {}  # Now keyed by username instead of random ID
+        self.active_connections: List[Dict[str, any]] = []
+        self.user_cursors: Dict[str, dict] = {}
         self.shapes: List[dict] = []
         self.status_task = None
         logger.info("ConnectionManager initialized")
-        
-        # Start the periodic status broadcast
-        asyncio.create_task(self._periodic_status_broadcast())
+
+    def start_periodic_broadcast(self):
+        """Start the periodic status broadcast"""
+        if not self.status_task:
+            try:
+                loop = asyncio.get_event_loop()
+                self.status_task = loop.create_task(self._periodic_status_broadcast())
+            except RuntimeError:
+                logger.error("Could not start periodic broadcast - no event loop running")
 
     async def _periodic_status_broadcast(self):
         """Broadcast connection status every 30 seconds"""
@@ -317,6 +323,12 @@ class ConnectionManager:
         await self._broadcast_message(removal_message)
 
 manager = ConnectionManager()
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize the periodic status broadcast when the application starts"""
+    manager.start_periodic_broadcast()
+    logger.info("Started periodic status broadcast")
 
 # Routes
 @app.post("/register", response_model=Token)
